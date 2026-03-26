@@ -1,0 +1,556 @@
+\documentclass[12pt,a4paper]{article}
+
+% ─── Packages ───────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows,positioning,fit,calc}
+
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+
+% ─── Title ──────────────────────────────────────────────────
+\title{%
+  \textbf{Multi-Scale Tokenization and Fusion for\\Multivariate Time Series Forecasting}\\[0.5em]
+  \large B.Tech Project Report (Mid-Term Progress)\\
+  \large Extending SimpleTM: A Simple Baseline for MTSF
+}
+\author{Student Name \\ Roll Number \\ Department of Computer Science}
+\date{March 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report presents our B.Tech project on extending SimpleTM for multivariate time series forecasting (MTSF) through multiple tokenization strategies and their fusion. The complete project investigates four tokenization approaches --- Stationary Wavelet Transform (SWT), Fast Fourier Transform (FFT), Convolutional/Local tokenization, and a Fusion model combining all three --- while keeping SimpleTM's novel geometric attention (wedge product scoring) unchanged. This mid-term report covers the completed Phase~1: implementation and evaluation of SWT-only and FFT-only tokenization variants. Experiments on ETTh1 show FFT tokenization achieves competitive performance (MSE: 0.4571 vs.\ 0.4513 for SWT, a gap of only 1.29\%), validating the modular tokenization approach. Phase~2 (convolutional tokenization and fusion model) is underway and described in detail.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ═══════════════════════════════════════════════════════════
+\section{Introduction}
+% ═══════════════════════════════════════════════════════════
+
+Multivariate time series forecasting (MTSF) is a fundamental problem in machine learning with applications in energy management, weather prediction, traffic flow estimation, and financial modeling. Given $N$ variates observed over $L$ time steps, the goal is to predict values for the next $H$ steps.
+
+Recent transformer-based methods have shown strong performance, but often at high computational cost. \textbf{SimpleTM}~\cite{simpletm} proposes a lightweight alternative that combines:
+\begin{enumerate}[noitemsep]
+  \item \textbf{Channel-independent inverted embedding} --- treats each variate as a token
+  \item \textbf{SWT tokenization} --- multi-scale signal decomposition via Stationary Wavelet Transform
+  \item \textbf{Geometric attention} --- novel attention combining dot product and wedge (exterior) product scores
+\end{enumerate}
+
+\subsection{Motivation}
+
+The SWT tokenization in SimpleTM creates multi-resolution representations that capture both local and global temporal patterns. However, a key question remains: \textit{is SWT the best tokenization strategy, or can alternative decompositions --- spectral (FFT), local (convolutional), or a fusion of all three --- achieve better performance?}
+
+Different tokenization strategies capture fundamentally different signal characteristics:
+\begin{itemize}[noitemsep]
+  \item \textbf{SWT} provides \textit{time-localized} multi-resolution analysis
+  \item \textbf{FFT} provides \textit{global frequency} separation with clean spectral bands
+  \item \textbf{Convolutional/Local} captures \textit{short-range patterns} via learnable local filters
+  \item \textbf{Fusion} combines complementary representations from all three for richer tokenization
+\end{itemize}
+
+\subsection{Project Scope and Objectives}
+
+The complete project is structured in two phases:
+
+\textbf{Phase 1 --- Mid-Term (Completed):}
+\begin{enumerate}[noitemsep]
+  \item Implement the original SimpleTM (SWT + Geometric Attention) as baseline
+  \item Create an FFT-only tokenization variant while preserving geometric attention
+  \item Compare SWT vs.\ FFT on the ETTh1 benchmark
+  \item Conduct exploratory data analysis and signal decomposition study
+\end{enumerate}
+
+\textbf{Phase 2 --- Final Semester (Planned):}
+\begin{enumerate}[noitemsep]
+  \setcounter{enumi}{4}
+  \item Implement Convolutional/Local tokenization variant
+  \item Build a Fusion model combining SWT + FFT + Convolutional tokenizations
+  \item Evaluate all variants across multiple datasets and prediction horizons
+  \item Ablation study on fusion strategies (concatenation, gating, attention-based)
+\end{enumerate}
+
+% ═══════════════════════════════════════════════════════════
+\section{Exploratory Data Analysis}
+% ═══════════════════════════════════════════════════════════
+
+\subsection{Dataset Overview}
+
+We use the \textbf{ETTh1} (Electricity Transformer Temperature --- Hourly) dataset, a standard benchmark for MTSF.
+
+\begin{table}[H]
+\centering
+\caption{ETTh1 Dataset Summary}
+\label{tab:dataset}
+\begin{tabular}{ll}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Time range & 2016-07-01 to 2018-06-26 \\
+Duration & 725 days \\
+Samples & 17,420 \\
+Frequency & Hourly \\
+Features & 7 (HUFL, HULL, MUFL, MULL, LUFL, LULL, OT) \\
+Missing values & 0 \\
+Target variable & OT (Oil Temperature) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Descriptive Statistics}
+
+\begin{table}[H]
+\centering
+\caption{Feature Statistics}
+\label{tab:stats}
+\begin{tabular}{lrrrrrrr}
+\toprule
+& \textbf{HUFL} & \textbf{HULL} & \textbf{MUFL} & \textbf{MULL} & \textbf{LUFL} & \textbf{LULL} & \textbf{OT} \\
+\midrule
+Mean  &  7.38 & 2.24 & 4.30 & 0.88 & 3.07 & 0.86 & 13.33 \\
+Std   &  7.07 & 2.04 & 6.83 & 1.81 & 1.17 & 0.60 &  8.57 \\
+Min   & $-$22.71 & $-$4.76 & $-$25.09 & $-$5.93 & $-$1.19 & $-$1.37 & $-$4.08 \\
+Max   & 23.64 & 10.11 & 17.34 & 7.75 & 8.50 & 3.05 & 46.01 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Key observations:
+\begin{itemize}[noitemsep]
+  \item HUFL and MUFL have the highest variance, indicating large dynamic range
+  \item All features span both positive and negative values
+  \item OT (target) ranges from $-4.08$ to $46.01$ with mean $13.33$
+\end{itemize}
+
+\subsection{Correlation Analysis}
+
+Cross-variate correlation reveals important structure:
+
+\begin{table}[H]
+\centering
+\caption{Highly Correlated Feature Pairs ($|r| > 0.7$)}
+\label{tab:corr}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Pair} & \textbf{Pearson $r$} & \textbf{Interpretation} \\
+\midrule
+HUFL $\leftrightarrow$ MUFL & 0.987 & Near-perfect linear relationship \\
+HULL $\leftrightarrow$ MULL & 0.930 & Strong positive correlation \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+These strong cross-variate correlations justify the \textit{channel-mixing} approach used by SimpleTM's geometric attention, which computes inter-variate attention scores.
+
+\subsection{Stationarity Analysis}
+
+We performed the Augmented Dickey-Fuller (ADF) test on each feature:
+
+\begin{table}[H]
+\centering
+\caption{ADF Stationarity Test Results}
+\label{tab:adf}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Feature} & \textbf{ADF Statistic} & \textbf{$p$-value} & \textbf{Stationary?} \\
+\midrule
+HUFL & $-8.564$ & $< 0.001$ & Yes \\
+HULL & $-4.743$ & $< 0.001$ & Yes \\
+MUFL & $-8.555$ & $< 0.001$ & Yes \\
+MULL & $-4.489$ & $< 0.001$ & Yes \\
+LUFL & $-5.441$ & $< 0.001$ & Yes \\
+LULL & $-4.717$ & $< 0.001$ & Yes \\
+OT   & $-3.760$ & $0.003$   & Yes \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All features are stationary at the 1\% significance level. However, OT has the weakest stationarity ($p = 0.003$), suggesting the presence of trends that benefit from multi-scale decomposition.
+
+\subsection{Seasonal Decomposition}
+
+Decomposing OT with period = 24 hours reveals:
+\begin{itemize}[noitemsep]
+  \item \textbf{Trend variance}: 56.07 --- dominant component, captures long-term temperature changes
+  \item \textbf{Seasonal variance}: 1.23 --- daily cycle (24h periodicity)
+  \item \textbf{Residual variance}: 1.97 --- noise after removing trend and seasonality
+  \item \textbf{Seasonal strength}: 0.385 --- moderate seasonality
+\end{itemize}
+
+The strong trend component motivates multi-scale decomposition: both SWT and FFT separate low-frequency trends from high-frequency oscillations.
+
+% ═══════════════════════════════════════════════════════════
+\section{Model Architecture}
+% ═══════════════════════════════════════════════════════════
+
+\subsection{SimpleTM Pipeline}
+
+The SimpleTM architecture follows an inverted transformer design where each \textit{variate} (not each time step) becomes a token:
+
+\begin{enumerate}
+  \item \textbf{Instance Normalization (RevIN)}: Subtract mean, divide by standard deviation per sample to handle distribution shift:
+  \begin{equation}
+    \hat{x} = \frac{x - \mu_x}{\sigma_x + \epsilon}
+  \end{equation}
+
+  \item \textbf{Inverted Embedding}: Linear projection from temporal dimension to model dimension:
+  \begin{equation}
+    E = \text{Linear}(x^\top) \in \mathbb{R}^{B \times N \times d_\text{model}}, \quad x^\top \in \mathbb{R}^{B \times N \times L}
+  \end{equation}
+
+  \item \textbf{Tokenization + Geometric Attention Encoder}: Multi-scale decomposition followed by geometric attention (detailed in Section~\ref{sec:tokenization})
+
+  \item \textbf{Output Projection}: Linear projection from model dimension to prediction horizon:
+  \begin{equation}
+    \hat{y} = \text{Linear}(E_\text{out})^\top \in \mathbb{R}^{B \times H \times N}
+  \end{equation}
+
+  \item \textbf{De-normalization}: Reverse the RevIN to restore original scale
+\end{enumerate}
+
+\subsection{Tokenization Strategies}
+\label{sec:tokenization}
+
+The core contribution of this project is investigating multiple tokenization strategies that transform each variate's $d_\text{model}$-dimensional token into $(m{+}1)$ multi-scale sub-tokens. We explore three individual tokenizations and their fusion.
+
+\subsubsection{SWT Tokenization (Original)}
+
+The Stationary Wavelet Transform decomposes a signal using low-pass ($h_0$) and high-pass ($h_1$) filters at increasing dilation rates:
+
+\begin{equation}
+  \text{SWT}(x, m) = [A_m, D_m, D_{m-1}, \ldots, D_1]
+\end{equation}
+
+where $A_m$ is the approximation (lowest frequency) and $D_i$ are detail coefficients at level $i$. SWT uses circular padding with grouped 1D convolutions:
+
+\begin{align}
+  A_i &= h_0 *_{2^i} A_{i-1} \quad \text{(low-pass, dilation } 2^i\text{)} \\
+  D_i &= h_1 *_{2^i} A_{i-1} \quad \text{(high-pass, dilation } 2^i\text{)}
+\end{align}
+
+The wavelet filters (default: \texttt{db1} Daubechies) can be learnable via backpropagation.
+
+\textbf{Strength}: Time-localized multi-resolution --- captures transient events while preserving temporal position.
+
+\subsubsection{FFT Tokenization (Phase 1 --- Completed)}
+
+Our FFT tokenization replaces wavelet decomposition with spectral band decomposition:
+
+\begin{equation}
+  X(k) = \text{FFT}(x) \in \mathbb{C}^{L/2+1}
+\end{equation}
+
+The frequency spectrum is divided into $(m{+}1)$ equal bands:
+
+\begin{equation}
+  B_i = \text{IFFT}\left(X(k) \cdot \mathbf{1}_{k \in [i \cdot s, \, (i{+}1) \cdot s)}\right), \quad s = \left\lfloor \frac{L/2 + 1}{m + 1} \right\rfloor
+\end{equation}
+
+Each band is weighted by a learnable scalar $w_i$:
+\begin{equation}
+  \text{FFT}_\text{decompose}(x) = \text{stack}[w_0 B_0, \, w_1 B_1, \, \ldots, \, w_m B_m] \in \mathbb{R}^{(m+1) \times L}
+\end{equation}
+
+\textbf{Strength}: Global frequency separation --- cleanly isolates periodic components and trends.
+
+\subsubsection{Convolutional / Local Tokenization (Phase 2 --- Planned)}
+\label{sec:conv_token}
+
+The convolutional tokenization uses learnable 1D convolution kernels at multiple scales to extract \textit{local patterns} from the signal:
+
+\begin{equation}
+  C_i = \text{Conv1D}(x, \, f_i, \, \text{kernel\_size} = k_i), \quad i = 0, 1, \ldots, m
+\end{equation}
+
+where $f_i$ are learnable filters and $k_i$ are kernel sizes at different scales (e.g., $k_0=3, k_1=5, k_2=7, k_3=11$). Unlike SWT's fixed wavelet filters and FFT's global frequency decomposition, convolutional tokenization:
+\begin{itemize}[noitemsep]
+  \item Learns \textit{task-specific} local patterns directly from data
+  \item Captures \textit{short-range dependencies} like local trends and spikes
+  \item Operates at multiple receptive field sizes via varying kernel sizes
+\end{itemize}
+
+The multi-scale convolutional features are stacked to produce the same $(m{+}1)$ sub-tokens, ensuring compatibility with the geometric attention layer:
+\begin{equation}
+  \text{Conv}_\text{decompose}(x) = \text{stack}[C_0, C_1, \ldots, C_m] \in \mathbb{R}^{(m+1) \times L}
+\end{equation}
+
+\textbf{Strength}: Learns data-adaptive local patterns --- captures short-range motifs that fixed-basis methods (SWT, FFT) may miss.
+
+\subsubsection{Fusion Model (Phase 2 --- Planned)}
+\label{sec:fusion}
+
+The fusion model is the central contribution of this project. Rather than choosing a single tokenization, it combines all three to produce a richer multi-scale representation:
+
+\begin{equation}
+  T_\text{fusion} = \text{Fuse}\left(T_\text{SWT}, \, T_\text{FFT}, \, T_\text{Conv}\right)
+\end{equation}
+
+where each $T \in \mathbb{R}^{(m+1) \times L}$ is the tokenized representation from a different strategy. We plan to explore three fusion strategies:
+
+\textbf{(a) Concatenation Fusion}: Stack all tokenizations along the scale dimension:
+\begin{equation}
+  T_\text{concat} = [T_\text{SWT}; T_\text{FFT}; T_\text{Conv}] \in \mathbb{R}^{3(m+1) \times L}
+\end{equation}
+followed by a linear projection back to $(m{+}1) \times L$.
+
+\textbf{(b) Gating Fusion}: Learn a gate to dynamically weight each tokenization:
+\begin{equation}
+  g = \sigma(W_g [T_\text{SWT}; T_\text{FFT}; T_\text{Conv}]), \quad T_\text{gated} = g \odot T_\text{SWT} + (1-g) \odot T_\text{avg}
+\end{equation}
+
+\textbf{(c) Attention-Based Fusion}: Use a small cross-attention layer where tokens from different decompositions attend to each other before being combined.
+
+The fused tokens are then passed to the same geometric attention layer, preserving the overall SimpleTM architecture.
+
+\subsection{Geometric Attention}
+
+All tokenization variants (including the planned fusion model) feed into the same geometric attention mechanism, which computes inter-variate scores using both the \textit{dot product} and the \textit{wedge (exterior) product}:
+
+\begin{equation}
+  \text{score}(q, k) = (1 - \alpha) \cdot \langle q, k \rangle + \alpha \cdot \|q \wedge k\|
+\end{equation}
+
+where:
+\begin{align}
+  \langle q, k \rangle &= q^\top k \quad \text{(dot product --- measures alignment)} \\
+  \|q \wedge k\|^2 &= \|q\|^2 \|k\|^2 - (q^\top k)^2 \quad \text{(wedge norm --- measures ``spread'')}
+\end{align}
+
+The wedge product captures \textit{how different} two vectors are, complementing the dot product which captures similarity. The attention weights are:
+\begin{equation}
+  A = \text{softmax}\left(\frac{\text{score}(Q, K)}{\sqrt{d}}\right), \quad \text{output} = A \cdot V
+\end{equation}
+
+\subsection{Model Variants Summary}
+
+\begin{table}[H]
+\centering
+\caption{Complete Model Variant Comparison}
+\label{tab:variants}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Component} & \textbf{SimpleTM\_SWT} & \textbf{SimpleTM\_FFT} & \textbf{SimpleTM\_Conv} & \textbf{SimpleTM\_Fusion} \\
+\midrule
+Embedding & Inverted Linear & Inverted Linear & Inverted Linear & Inverted Linear \\
+Tokenization & SWT & FFT Bands & Multi-scale Conv & SWT+FFT+Conv \\
+Attention & Geometric & Geometric & Geometric & Geometric \\
+Reconstruction & Inverse SWT & Band Sum & Transpose Conv & Learned Fusion \\
+Projection & Linear & Linear & Linear & Linear \\
+\midrule
+Status & \textcolor{green}{Done} & \textcolor{green}{Done} & \textcolor{orange}{Planned} & \textcolor{orange}{Planned} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Training}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Loss}: MSE + $\lambda \cdot L_1(\text{attn})$, where $\lambda = 5 \times 10^{-5}$
+  \item \textbf{Optimizer}: AdamW with learning rate $10^{-4}$
+  \item \textbf{LR Schedule}: Halving every epoch (type1)
+  \item \textbf{Early Stopping}: Patience = 3 on validation loss
+  \item \textbf{Seed}: 2025 for reproducibility
+\end{itemize}
+
+% ═══════════════════════════════════════════════════════════
+\section{Signal Decomposition Analysis}
+% ═══════════════════════════════════════════════════════════
+
+\subsection{FFT Power Spectrum}
+
+Frequency analysis of all features reveals dominant periodicities. The OT (target) variable shows strong peaks at 24h (daily cycle) and weaker peaks at 12h and 168h (weekly). This periodic structure is what FFT tokenization captures through its frequency band splitting.
+
+\subsection{Energy Distribution: SWT vs FFT}
+
+A critical comparison of how SWT and FFT distribute signal energy across their respective decomposition levels (with $m=3$, yielding 4 bands):
+
+\begin{table}[H]
+\centering
+\caption{Energy Distribution Across Decomposition Bands}
+\label{tab:energy}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Band} & \textbf{FFT (\%)} & \textbf{SWT (\%)} \\
+\midrule
+Low Freq / Approximation & 86.7 & 54.8 \\
+Low-Mid / Detail 3 & 7.4 & 4.7 \\
+Mid-High / Detail 2 & 2.5 & 10.7 \\
+High Freq / Detail 1 & 3.4 & 29.9 \\
+\midrule
+\textbf{Total} & 100.0 & 100.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key insight}: FFT concentrates 86.7\% of energy in the lowest frequency band, while SWT distributes energy more evenly (54.8\% approx, 29.9\% high detail). This is because:
+\begin{itemize}[noitemsep]
+  \item SWT uses \textit{time-localized} filters that capture transient high-frequency events
+  \item FFT uses \textit{global} frequency separation, so smooth trends dominate
+\end{itemize}
+
+The FFT reconstruction achieves near-perfect reconstruction (MSE $= 1.39 \times 10^{-30}$).
+
+% ═══════════════════════════════════════════════════════════
+\section{Experimental Results}
+% ═══════════════════════════════════════════════════════════
+
+\subsection{Setup}
+
+All experiments were conducted on Kaggle with a Tesla T4 GPU, PyTorch 2.9.0+cu126. Configuration:
+
+\begin{table}[H]
+\centering
+\caption{Experimental Configuration}
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Dataset & ETTh1 \\
+Input length ($L$) & 96 \\
+Prediction horizon ($H$) & 96 \\
+$d_\text{model}$ & 32 \\
+$d_\text{ff}$ & 32 \\
+Encoder layers & 1 \\
+Decomposition levels ($m$) & 3 \\
+Wavelet (SWT) & db1 \\
+$\alpha$ (attention) & 1.0 \\
+Batch size & 32 \\
+Epochs & 10 (early stopping) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Results}
+
+\begin{table}[H]
+\centering
+\caption{Forecasting Performance on ETTh1 (96 $\rightarrow$ 96)}
+\label{tab:results}
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Model} & \textbf{Tokenization} & \textbf{MSE $\downarrow$} & \textbf{MAE $\downarrow$} & \textbf{Params} \\
+\midrule
+SimpleTM (Original) & SWT & \textbf{0.4513} & \textbf{0.4462} & 12,856 \\
+SimpleTM\_SWT & SWT & \textbf{0.4513} & \textbf{0.4462} & 12,856 \\
+SimpleTM\_FFT & FFT & 0.4571 & 0.4495 & 12,808 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Analysis}
+
+\begin{enumerate}
+  \item \textbf{SWT baseline consistency}: SimpleTM and SimpleTM\_SWT produce identical results (same code, same seed), confirming implementation correctness.
+
+  \item \textbf{FFT performance}: The FFT variant achieves MSE = 0.4571, only \textbf{1.29\% higher} than SWT (0.4513). MAE shows an even smaller gap of \textbf{0.74\%}.
+
+  \item \textbf{Parameter efficiency}: FFT uses 48 fewer parameters than SWT (no wavelet filter coefficients), though the difference is minimal at this scale.
+
+  \item \textbf{Training dynamics}: Both models converge within 10 epochs with similar training loss trajectories. FFT shows slightly higher initial loss but converges to a comparable final value.
+\end{enumerate}
+
+\subsection{Discussion}
+
+The small performance gap between SWT and FFT tokenization suggests that the \textbf{geometric attention mechanism is the primary driver} of SimpleTM's effectiveness, not the specific choice of tokenization.
+
+\textbf{Why SWT is slightly better}: SWT provides \textit{time-localized} multi-resolution analysis where each wavelet coefficient retains temporal position information. FFT provides \textit{global} frequency decomposition, which may lose fine-grained temporal patterns. For the ETTh1 dataset with its moderate seasonality and strong trends, this temporal localization provides a marginal advantage.
+
+\textbf{When FFT might be preferred}:
+\begin{itemize}[noitemsep]
+  \item Strongly periodic signals where global frequency information is sufficient
+  \item When wavelet filter selection is problematic
+  \item When implementation simplicity is valued over marginal performance gains
+\end{itemize}
+
+% ═══════════════════════════════════════════════════════════
+\section{Current Progress and Remaining Work}
+% ═══════════════════════════════════════════════════════════
+
+\subsection{Phase 1 --- Completed (Mid-Term)}
+
+\begin{enumerate}[noitemsep]
+  \item \textbf{SWT-only baseline}: Implemented and validated (identical to original SimpleTM)
+  \item \textbf{FFT-only tokenization}: Implemented with learnable band weights; achieves MSE = 0.4571 (within 1.29\% of SWT)
+  \item \textbf{Exploratory data analysis}: Complete characterization of ETTh1 --- stationarity, seasonality, frequency content, energy distribution
+  \item \textbf{Infrastructure}: Modular codebase supporting plug-and-play tokenization, Kaggle notebooks for reproducibility
+\end{enumerate}
+
+\subsection{Phase 2 --- Planned (Final Semester)}
+
+\textbf{2a. Convolutional / Local Tokenization} (see Section~\ref{sec:conv_token}):
+\begin{itemize}[noitemsep]
+  \item Implement multi-scale 1D convolution tokenization with varying kernel sizes
+  \item Compare local pattern capture vs.\ global decomposition (SWT/FFT)
+  \item Evaluate whether data-adaptive filters outperform fixed-basis methods
+\end{itemize}
+
+\textbf{2b. Fusion Model} (see Section~\ref{sec:fusion}):
+\begin{itemize}[noitemsep]
+  \item Implement three fusion strategies: concatenation, gating, attention-based
+  \item Ablation study on which tokenization combinations work best
+  \item Hypothesis: fusion will outperform individual tokenizations by capturing complementary signal characteristics (time-localized + spectral + local patterns)
+\end{itemize}
+
+\textbf{2c. Comprehensive Evaluation}:
+\begin{itemize}[noitemsep]
+  \item Expand to multiple datasets: ECL (321 variates), Weather (21), Traffic (862)
+  \item Test multiple prediction horizons: 96, 192, 336, 720
+  \item Scale to published hyperparameters ($d_\text{model}=256$, $d_\text{ff}=1024$)
+  \item Computational cost analysis (FLOPs, memory, training time)
+\end{itemize}
+
+% ═══════════════════════════════════════════════════════════
+\section{Conclusion}
+% ═══════════════════════════════════════════════════════════
+
+This mid-term report presented the first phase of our project investigating modular tokenization strategies for the SimpleTM time series forecasting framework. 
+
+\textbf{Key findings so far}:
+\begin{enumerate}[noitemsep]
+  \item FFT tokenization is a \textbf{viable alternative} to SWT, achieving within 1.29\% MSE on ETTh1
+  \item The geometric attention (wedge product) is the \textbf{dominant factor} in SimpleTM's performance, not the tokenization choice
+  \item SWT and FFT capture \textbf{fundamentally different} signal characteristics: FFT concentrates 86.7\% energy in low frequencies vs.\ SWT's 54.8\%
+  \item The modular architecture successfully supports plug-and-play tokenization
+\end{enumerate}
+
+The competitive performance of FFT (which captures global frequency structure) vs.\ SWT (which captures time-localized patterns) strongly motivates our Phase~2 work: the \textbf{fusion model} that combines both with convolutional/local tokenization to create a richer, complementary multi-scale representation. We hypothesize that this fusion will outperform any individual tokenization by simultaneously capturing spectral, wavelet, and local pattern information.
+
+% ═══════════════════════════════════════════════════════════
+\begin{thebibliography}{9}
+
+\bibitem{simpletm}
+SimpleTM: A Simple Baseline for Multivariate Time Series Forecasting.
+\textit{OpenReview / ICLR Submission}, 2025.
+\url{https://github.com/vsingh-group/SimpleTM}
+
+\bibitem{itransformer}
+Y.~Liu et al.,
+``iTransformer: Inverted Transformers Are Effective for Time Series Forecasting,''
+\textit{ICLR}, 2024.
+
+\bibitem{revin}
+T.~Kim et al.,
+``Reversible Instance Normalization for Accurate Time-Series Forecasting against Distribution Shift,''
+\textit{ICLR}, 2022.
+
+\bibitem{pywt}
+G.~R. Lee et al.,
+``PyWavelets: A Python package for wavelet analysis,''
+\textit{Journal of Open Source Software}, 4(36), 1237, 2019.
+
+\end{thebibliography}
+
+\end{document}

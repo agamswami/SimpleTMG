@@ -1,0 +1,1130 @@
+--- PAGE 1 ---
+SimpleTM++: Adaptive Hybrid Tokenization for Multivariate
+Time Series Forecasting
+Bachelors of Technology
+in
+Information Technology
+BachelorΓÇÖs of Technology Project Report
+by
+Agam Swami (2022IMG-006)
+Under the supervision of
+Dr. Anshul
+ABV INDIAN INSTITUTE OF INFORMATION
+TECHNOLOGY AND MANAGEMENT
+GWALIOR-474015
+
+--- PAGE 2 ---
+CANDIDATE DECLARATION
+I hereby certify that the work, which is being presented in the report, entitled Connected Component
+Analysis for Multi-Vehicle Detection in Shipment Tracking Systems, in fulfillment of the
+requirement for the award of the Degree of Bachelor of Technology (B.Tech) and submitted to the
+institution is an authentic record of my work carried out during the period January 2026 to March 2026
+under the supervision of Dr. Anshul. I have also cited the reference to the text(s)/figure(s)/table(s)
+from where they have been taken.
+Date:
+Signature of the Candidate
+Name: Agam Swami
+Roll No.: 2022IMG-006
+This is to certify that the above statement made by the candidate is true to the best of my knowledge.
+Date:
+Signature of the Project Supervisor
+Name: Dr. Anshul
+
+--- PAGE 3 ---
+Abstract
+Multivariate Time Series Forecasting (MTSF) is a fundamental problem with wide applications in energy
+systems, climate modelling, financial analysis, and traffic monitoring. The SimpleTM framework [1]
+proposes a lightweight yet competitive architecture that employs Stationary Wavelet Transform (SWT)
+tokenization and a Clifford-algebra-inspired geometric attention mechanism. However, its fixed single-
+strategy tokenisation may not be optimal across datasets exhibiting heterogeneous signal characteristics.
+This projectΓÇöSimpleTM++ΓÇösystematically investigates whether replacing or extending the original
+SWT tokeniser with an FFT-based tokeniser, or combining multiple tokenisation strategies through
+adaptive fusion, can improve forecasting robustness and accuracy. Work completed at mid-semester
+includes: a thorough literature review, full understanding of the SimpleTM codebase, multi-dataset ex-
+ploratory data analysis (EDA), implementation of both the SimpleTM SWT baseline and the SimpleTM FFT
+variant, and experimental evaluation on two ETT benchmark datasets. On ETTm1 (seq = 96, pred = 96),
+SimpleTM SWT achieves MSE = 0.3497 while SimpleTM FFT achieves MSE = 0.3630ΓÇöan unexpected gap
+given the strong frequency-domain structure observed in EDA. The report analyses this discrepancy in
+depth and motivates why a hybrid tokenisation approach remains the correct long-term direction. The
+planned SimpleTM++ hybrid model fuses SWT, FFT, and local convolutional branches through learnable
+gating, and is expected to overcome the limitations of each individual tokeniser.
+
+--- PAGE 4 ---
+Contents
+1
+Introduction
+5
+1.1
+Background . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5
+1.2
+Motivation
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+5
+1.3
+Scope and Contributions of This Project . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+6
+1.4
+Report Structure . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+6
+2
+Literature Review
+7
+2.1
+Multivariate Time Series Forecasting . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+7
+2.2
+SimpleTM . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+7
+2.3
+Wavelet-Based Methods . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+8
+2.4
+Frequency-Domain Methods . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+8
+2.5
+Hybrid and Multi-Scale Representations . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+8
+2.6
+Research Gap . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+8
+3
+Problem Statement
+9
+3.1
+Formal Problem Definition . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+9
+3.2
+Tokenisation Sub-Problem . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+9
+3.3
+Research Questions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+9
+3.4
+Datasets Studied . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+10
+4
+Methodology
+11
+4.1
+Overview
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+11
+4.2
+Dataset Selection . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+11
+4.3
+Exploratory Data Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+11
+4.4
+Implementation Methodology . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+12
+4.4.1
+Repository Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+12
+4.4.2
+FFT Tokeniser Design . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+12
+4.4.3
+Controlled Experimental Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+12
+4.5
+Evaluation Metrics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+13
+5
+System Architecture
+14
+5.1
+Original SimpleTM Pipeline . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+14
+5.2
+SimpleTM FFT Architecture
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+5.3
+Planned SimpleTM++ Hybrid Architecture . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+6
+Exploratory Data Analysis
+16
+6.1
+Overview of EDA Findings
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+16
+6.2
+Stationarity Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+17
+1
+
+--- PAGE 5 ---
+CONTENTS
+2
+6.3
+FFT Spectrum Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+18
+6.4
+Wavelet Decomposition Analysis
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+18
+6.5
+Cross-Channel Correlation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+19
+6.6
+EDA Summary and Tokenisation Justification . . . . . . . . . . . . . . . . . . . . . . . . .
+19
+7
+Experimental Results
+20
+7.1
+ETTh1 Results (seq=96, pred=96) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+20
+7.2
+ETTm1 Results (seq=96, pred=96) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+21
+8
+Discussion
+23
+8.1
+Why the FFT Model Underperforms on ETTm1
+. . . . . . . . . . . . . . . . . . . . . . .
+23
+8.1.1
+Stationarity Assumption Violation . . . . . . . . . . . . . . . . . . . . . . . . . . .
+23
+8.1.2
+Phase Information Loss
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+23
+8.1.3
+Over-Smoothing from Spectral Averaging . . . . . . . . . . . . . . . . . . . . . . .
+23
+8.1.4
+Short-Sequence Context . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+23
+8.1.5
+Implementation Axis Consideration
+. . . . . . . . . . . . . . . . . . . . . . . . . .
+24
+8.2
+Why We Should Still Pursue the Hybrid Model . . . . . . . . . . . . . . . . . . . . . . . .
+24
+8.3
+Comparison with Related Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+24
+9
+Limitations
+26
+9.1
+Current Implementation Limitations . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+26
+9.2
+Limitations Addressed by the Hybrid Model . . . . . . . . . . . . . . . . . . . . . . . . . .
+27
+10 Future Work
+28
+10.1 Immediate Tasks (Next 2 Weeks) . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+28
+10.2 Main Planned Extensions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+28
+10.3 Expected Final Contribution
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+28
+11 Conclusion
+29
+
+--- PAGE 6 ---
+List of Figures
+5.1
+Original SimpleTM architecture. SWT tokenisation decomposes each variate token into
+m + 1 sub-bands; geometric attention operates over this multi-scale representation. . . . .
+14
+5.2
+SimpleTM FFT architecture. The SWT decomposition and reconstruction blocks are
+replaced by FFT spectral-band decomposition and weighted summation.
+Geometric
+attention is unchanged.
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+15
+5.3
+Planned SimpleTM++ hybrid architecture. Three parallel tokenisation branches process
+each variate token. A learnable gating network fuses the branch outputs before passing to
+the shared geometric attention encoder and forecast head. . . . . . . . . . . . . . . . . . .
+15
+6.1
+Stationarity analysis (ADF test, p < 0.05) across ETT datasets. Mixed stationarity profiles
+justify the use of multiple tokenisation strategies: fully stationary series favour FFT,
+non-stationary series favour SWT, and heterogeneous datasets motivate hybrid fusion. . .
+17
+6.2
+FFT spectrum analysis. ETTm1 (15-minute granularity) exhibits strong, concentrated
+spectral peaks corresponding to daily and weekly periodicities, suggesting that FFT
+tokenisation should capture useful frequency structure. . . . . . . . . . . . . . . . . . . . .
+18
+6.3
+Multi-level SWT decomposition of the ETTm1 oil temperature (OT) variate. The approxi-
+mation coefficients capture the slowly-varying trend, while detail coefficients at different
+levels encode fine-grained oscillations and abrupt changes. . . . . . . . . . . . . . . . . . .
+18
+6.4
+Cross-channel correlation heatmap for different dataset. Strong inter-variate correlations
+validate the channel-mixing inverted embedding used in SimpleTM. . . . . . . . . . . . . .
+19
+7.1
+Prediction comparison on the ETTh1 dataset for the SWT-based and FFT-based SimpleTM
+variants. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+20
+7.2
+Prediction comparison on the ETTm1 dataset for the SWT-based and FFT-based SimpleTM
+variants. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+21
+7.3
+Summary MSE comparison across all three model variants on ETTh1 and ETTm1. The
+SWT variants consistently outperform the FFT variant, with the gap being larger on
+ETTm1. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+22
+3
+
+--- PAGE 7 ---
+List of Tables
+3.1
+ETT Dataset Characteristics
+. . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+10
+4.1
+Shared Experimental Configuration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+13
+6.1
+ETT Dataset Summary Statistics . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+16
+6.2
+EDA-Derived Tokenisation Justification . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+19
+7.1
+ETTh1 Test Set Results (seq len=96, pred len=96) . . . . . . . . . . . . . . . . . . . . . .
+20
+7.2
+ETTm1 Test Set Results (seq len=96, pred len=96)
+. . . . . . . . . . . . . . . . . . . . .
+21
+9.1
+Limitations Addressed by SimpleTM++ Hybrid Architecture . . . . . . . . . . . . . . . .
+27
+4
+
+--- PAGE 8 ---
+Chapter 1
+Introduction
+1.1
+Background
+Time-series forecasting is the task of predicting future values of a signal using historical observations. In the
+multivariate setting, N variables evolve jointly over time and the forecaster must exploit both temporal
+dependencies within each channel and inter-channel correlations. Accurate multivariate forecasting
+underpins a broad set of high-impact applications:
+ΓÇó Electricity demand and load estimation [5];
+ΓÇó Weather and climate prediction;
+ΓÇó Traffic flow and road-occupancy monitoring;
+ΓÇó Industrial sensor analysis and anomaly detection;
+ΓÇó Financial price and volatility modelling.
+Deep learning, particularly Transformer-based models, has achieved state-of-the-art performance on
+standard MTSF benchmarks. However, large Transformer modelsΓÇöincluding LLM-adapter variants and
+architectures such as iTransformer and PatchTSTΓÇörequire substantial computational resources and
+extensive domain-specific fine-tuning. This limits their applicability in resource-constrained or real-time
+settings.
+1.2
+Motivation
+SimpleTM [1] was proposed as a lightweight, specialised alternative. By combining SWT-based tokenisation
+with geometric attention (combining dot-product and exterior product scores), even a one- or two-layer
+model achieves results competitive with much larger architectures on standard benchmarks. This raises a
+deeper question: is the SWT tokenisation the optimal choice for all datasets, or can other signal-processing
+representations provide complementary or superior inductive biases?
+EDA on the ETT datasets reveals that real-world time series exhibit qualitatively different structures:
+ΓÇó Strong periodic components visible in FFT spectra (motivating FFT tokenisation);
+ΓÇó Multi-scale non-stationary dynamics captured by wavelet decomposition (motivating SWT
+tokenisation);
+ΓÇó Short-range local motifs and abrupt spikes (motivating convolutional tokenisation).
+No single tokeniser is universally optimal; this motivates the SimpleTM++ hybrid framework proposed
+in this project.
+5
+
+--- PAGE 9 ---
+CHAPTER 1. INTRODUCTION
+6
+1.3
+Scope and Contributions of This Project
+This B.Tech Project (BTP) is an extension of the official SimpleTM repository (https://github.com/
+vsingh-group/SimpleTM).
+The project repository is available at https://github.com/agamswami/
+SimpleTMG. The specific contributions are:
+1. Systematic multi-dataset EDA justifying the need for multiple tokenisation strategies.
+2. Clean re-implementation of the original SimpleTM as SimpleTM SWT for fair ablation.
+3. Novel SimpleTM FFT variant: replaces SWT with FFT spectral-band tokenisation while keeping
+geometric attention identical.
+4. Controlled experimental comparison on ETTh1 and ETTm1 benchmark datasets.
+5. Analysis of the surprising FFT underperformance on ETTm1 despite favourable EDA signals.
+6. Design of the planned SimpleTM++ hybrid architecture.
+1.4
+Report Structure
+Chapter 2 reviews related work.
+Chapter 3 states the problem formally.
+Chapter 4 describes the
+methodology. Chapter 5 details the system architecture. Chapter 6 presents EDA findings. Chapter 7
+covers experimental setup and results. Chapter 8 discusses key findings, the FFTΓÇôSWT gap, and the
+hybrid rationale. Chapter 9 enumerates current limitations. Chapter 10 outlines planned work. Chapter 11
+concludes.
+
+--- PAGE 10 ---
+Chapter 2
+Literature Review
+2.1
+Multivariate Time Series Forecasting
+Multivariate time series forecasting has been addressed through a wide range of modelling paradigms.
+Classical statistical methods such as ARIMA and VAR provide interpretable models but fail to capture
+complex nonlinear dependencies. Recurrent neural networks (RNNs) and their gated variants (LSTM,
+GRU) model sequential dependencies but suffer from gradient issues over long horizons.
+Transformer-based models [5] have transformed sequence modelling broadly. In the time-series domain,
+Informer [6] introduced sparse attention for long-sequence forecasting. Autoformer [7] incorporated
+a decomposition block (trend + seasonality) into the Transformer structure. FEDformer leveraged
+frequency-enhanced attention. PatchTST [8] introduced patch-based tokenisation to better capture
+local temporal semantics. TimeMixer combined multi-scale mixing of seasonal and trend information.
+iTransformer inverted the attention axis to operate over variate tokens rather than time steps.
+A common challenge across all these models is that they are relatively large and computationally
+expensive, requiring significant memory and often dataset-specific fine-tuning.
+2.2
+SimpleTM
+SimpleTM [1] was accepted at ICLR 2025 and proposes a radically lightweight alternative. Its key
+innovations are:
+1. Inverted embedding: treats each variate as a token, mapping x ΓêêRB├ùL├ùN to z ΓêêRB├ùN├ùd via
+a linear projection over time.
+2. SWT tokenisation: applies the Stationary Wavelet Transform (SWT) to decompose each token
+into m + 1 frequency-scale sub-bands, producing multi-scale representations without downsampling.
+3. Geometric attention: replaces standard dot-product attention with a Clifford-algebra-inspired
+score combining a dot product and a wedge product (exterior product magnitude):
+score(q, k) = (1 ΓêÆ╬▒) qΓèñk + ╬▒ ΓêÑq ΓêºkΓêÑ,
+where ΓêÑq ΓêºkΓêÑ=
+p
+ΓêÑqΓêÑ2ΓêÑkΓêÑ2 ΓêÆ(qΓèñk)2, giving high scores to both similar and geometrically diverse
+token pairs.
+4. Learnable ISWT: a trainable inverse SWT reconstructs the output signal from multi-scale
+attention outputs.
+7
+
+--- PAGE 11 ---
+CHAPTER 2. LITERATURE REVIEW
+8
+The OpenReview peer assessments [2] highlight several strengths: simplicity, low memory footprint,
+competitive performance across 8 datasets, and well-motivated architecture. Key weaknesses raised by
+reviewers include: lack of characterisation of alternative tokenisation schemes (Reviewer L7y3 specifically
+calls out the absence of DFT-based ablation), minimal ablation over the SWT contribution itself
+(Reviewers Lbi6 and avrv), and no statistical significance tests for performance differences. This BTP
+directly addresses the first two gaps.
+2.3
+Wavelet-Based Methods
+Wavelet transforms have been applied extensively in signal processing for time-frequency analysis.
+The SWT (also called the undecimated wavelet transform) preserves the length of the signal at each
+decomposition level by avoiding downsampling, providing time-shift invariance. This makes it attractive for
+forecasting where temporal alignment is critical. Learnable wavelet filters further allow the decomposition
+to adapt to data-driven frequency structures.
+2.4
+Frequency-Domain Methods
+Fourier analysis decomposes a signal into a sum of sinusoidal components. The FFT provides a global
+frequency representation of the entire sequence. FEDformer [9] showed that operating in the frequency
+domain can improve forecasting by directly modelling periodic structures. However, the FFT assumes
+global stationarityΓÇöthe frequency content is assumed to be constant across the entire sequenceΓÇöwhich is
+violated by many real-world time series exhibiting time-varying dynamics.
+2.5
+Hybrid and Multi-Scale Representations
+Several recent works have explored hybrid representations combining time-domain and frequency-domain
+information. TimeMixer uses multi-resolution temporal mixing. Multi-scale patch approaches combine
+local and global representations. The general principle is that complementary representations, combined
+adaptively, can overcome the limitations of any single view of the signal.
+2.6
+Research Gap
+The original SimpleTM uses a fixed SWT tokeniser regardless of the dataset. Reviewer L7y3 at ICLR
+2025 explicitly asked for ΓÇ£characterisation of other methods such as discrete Fourier transforms in the
+context of the proposed tokenisation schemeΓÇ¥ [2]. This BTP addresses this gap directly by implementing
+a controlled FFT tokeniser ablation and studying the empirical behaviour of frequency-domain and
+wavelet-domain tokenisation on two standard benchmark datasets.
+
+--- PAGE 12 ---
+Chapter 3
+Problem Statement
+3.1
+Formal Problem Definition
+Let X = [x1, x2, . . . , xL] ΓêêRL├ùN denote a multivariate time series with N variates observed over L time
+steps. The goal of multivariate time series forecasting is to predict the next H steps:
+╦åXL+1:L+H = f╬╕(X1:L),
+where f╬╕ is a parameterised model trained to minimise the Mean Squared Error (MSE) loss:
+L =
+1
+H ┬╖ N
+H
+X
+h=1
+N
+X
+n=1
+(╦åxL+h,n ΓêÆxL+h,n)2 .
+3.2
+Tokenisation Sub-Problem
+Within the SimpleTM framework, the model first embeds X into variate tokens Z ΓêêRB├ùN├ùd and then
+applies a tokenisation function T : RB├ùN├ùd ΓåÆRB├ùN├ù(m+1)├ùd that decomposes each token into m + 1
+sub-bands. The central problem addressed in this project is:
+Does the choice of tokenisation function T (SWT, FFT, or a hybrid combination) materi-
+ally affect forecasting accuracy, and is there a configuration that is robustly superior across
+heterogeneous multivariate time-series datasets?
+3.3
+Research Questions
+RQ1. Can an FFT-based tokeniser serve as a valid, competitive alternative to the original SWT tokeniser
+in SimpleTM?
+RQ2. Do different tokenisation strategies perform better on datasets with qualitatively different signal
+characteristics?
+RQ3. Can EDA-derived signal characteristics (stationarity, periodicity strength, local volatility) predict
+which tokeniser will perform better on a given dataset?
+RQ4. Can a hybrid tokenisation frameworkΓÇöcombining SWT, FFT, and convolutional representationsΓÇö
+provide more robust forecasting performance across diverse datasets?
+9
+
+--- PAGE 13 ---
+CHAPTER 3. PROBLEM STATEMENT
+10
+3.4
+Datasets Studied
+This project focuses on the Electricity Transformer Temperature (ETT) benchmark family, which is
+widely used for MTSF evaluation:
+Table 3.1: ETT Dataset Characteristics
+Dataset
+Frequency
+Variates
+Train Size
+Test Size
+ETTh1
+Hourly
+7
+8,449
+2,785
+ETTm1
+Minutely (15-min)
+7
+34,369
+11,425
+
+--- PAGE 14 ---
+Chapter 4
+Methodology
+4.1
+Overview
+The project follows a structured empirical methodology:
+1. Codebase Study: Thorough analysis of the SimpleTM official repository.
+2. EDA: Multi-dimensional signal analysis across benchmark datasets.
+3. Controlled Ablation: Vary only the tokenisation module; keep all other components (attention,
+embedding, normalisation, optimiser, hyperparameters) identical.
+4. Metric Evaluation: Report MSE, MAE, RMSE, MAPE, and MSPE on held-out test sets.
+5. Analysis: Explain observed results via signal-processing arguments and EDA findings.
+6. Hybrid Design: Propose and implement the SimpleTM++ architecture informed by the ablation
+analysis.
+4.2
+Dataset Selection
+The ETTh1 and ETTm1 datasets were selected because they are standard benchmarks reported in the
+SimpleTM paper, they differ in temporal granularity (hourly vs. 15-minute), and they exhibit different
+signal characteristics as revealed by EDA. All seven variates (oil temperature, four load features, two
+transformer metrics) are used in the multivariate forecasting setting (--features M).
+4.3
+Exploratory Data Analysis
+EDA was performed prior to model modification using the SimpleTM EDA Full.ipynb notebook. The
+analysis covered:
+ΓÇó Summary statistics: Mean, standard deviation, value range, missing values.
+ΓÇó Raw time-series plots with rolling mean and rolling standard deviation.
+ΓÇó Stationarity analysis: Augmented Dickey-Fuller (ADF) test per variate, producing stationarity
+percentages per dataset.
+ΓÇó FFT spectrum analysis: Power spectral density plots to quantify dominant periodicities and
+spectral concentration.
+ΓÇó Wavelet decomposition: Multi-level SWT to visualise multi-scale structure and energy distribu-
+tion across scales.
+ΓÇó Cross-channel correlation: Heatmaps of Pearson correlation across the 7 ETT variates.
+11
+
+--- PAGE 15 ---
+CHAPTER 4. METHODOLOGY
+12
+Each analysis was interpreted against three tokenisation indicators:
+ΓÇó Periodicity strength ΓçÆmotivates FFT tokenisation;
+ΓÇó Non-stationarity (high ADF p-value) ΓçÆmotivates SWT tokenisation;
+ΓÇó Local volatility / abrupt spikes ΓçÆmotivates convolutional tokenisation.
+4.4
+Implementation Methodology
+4.4.1
+Repository Setup
+The project repository (https://github.com/agamswami/SimpleTMG) forks the official SimpleTM code-
+base and adds three new files:
+ΓÇó model/SimpleTM SWT.py: Clean SWT-only baseline.
+ΓÇó model/SimpleTM FFT.py: FFT tokenisation variant.
+ΓÇó layers/FFTAttention Family.py: FFT embedding and FFTGeomAttentionLayer.
+The experiment registry in experiments/exp basic.py was patched to include the new model names.
+A NumPy 2.0 compatibility fix (np.Inf ΓåÆnp.inf) was also applied.
+4.4.2
+FFT Tokeniser Design
+The FFTEmbedding module implements FFT-based spectral band decomposition:
+Xfft = rfft(x, dim = ΓêÆ1) ΓêêCB├ùN├ùΓîèL/2Γîï+1
+The frequency spectrum is partitioned into m + 1 non-overlapping frequency bands of equal width. For
+band i:
+Xband,i = Xfft ┬╖ mi,
+╦£xi = irfft(Xband,i) ┬╖ wi
+where mi is a hard binary frequency mask and wi is a learnable scalar weight. The m + 1 band signals
+are stacked to form the tokenised representation T ΓêêRB├ùN├ù(m+1)├ùL, which is the direct analogue of the
+SWT multi-scale coefficient stack.
+Reconstruction sums the weighted band signals:
+╦åx =
+m
+X
+i=0
+╦£xi ┬╖ wΓêÆ1
+i
+4.4.3
+Controlled Experimental Setup
+To ensure the ablation compares only the tokenisation strategy, all hyperparameters are held fixed across
+model variants:
+
+--- PAGE 16 ---
+CHAPTER 4. METHODOLOGY
+13
+Table 4.1: Shared Experimental Configuration
+Parameter
+Value
+Sequence Length (seq len)
+96
+Prediction Length (pred len)
+96
+Model Dimension (d model)
+32
+FFN Dimension (d ff)
+32
+Encoder Layers (e layers)
+1
+Decomposition Levels (m)
+3
+Geometric Attention Weight (alpha)
+1.0
+Learning Rate
+1 ├ù 10ΓêÆ4
+Batch Size
+32
+Epochs
+10
+Patience (Early Stopping)
+3
+Optimiser
+AdamW
+Loss
+MSE + L1 attention regularisation
+Seed
+2025
+Device
+NVIDIA Tesla T4 (Kaggle)
+4.5
+Evaluation Metrics
+MSE =
+1
+HN
+X
+h,n
+(╦åxh,n ΓêÆxh,n)2
+(4.1)
+MAE =
+1
+HN
+X
+h,n
+|╦åxh,n ΓêÆxh,n|
+(4.2)
+RMSE =
+ΓêÜ
+MSE
+(4.3)
+MAPE =
+1
+HN
+X
+h,n
+
+╦åxh,n ΓêÆxh,n
+xh,n
+
+(4.4)
+MSPE =
+1
+HN
+X
+h,n
+ ╦åxh,n ΓêÆxh,n
+xh,n
+2
+(4.5)
+
+--- PAGE 17 ---
+Chapter 5
+System Architecture
+5.1
+Original SimpleTM Pipeline
+Figure 5.1: Original SimpleTM architecture. SWT tokenisation decomposes each variate token into m + 1
+sub-bands; geometric attention operates over this multi-scale representation.
+The original SimpleTM pipeline operates as follows:
+1. Instance Normalisation (RevIN): Subtracts the channel mean and divides by standard deviation;
+statistics are stored for de-normalisation.
+2. Inverted Embedding: Projects (B, L, N) ΓåÆ(B, N, d) by transposing and applying a linear
+projection over the time axis.
+3. SWT Decomposition: (B, N, d) ΓåÆ(B, N, m+1, d) via multi-level SWT with Daubechies-1 (Haar)
+filters.
+4. Q/K/V Projection: Three separate linear projections with dropout.
+5. Geometric Attention: Computes scores as (1 ΓêÆ╬▒) dot + ╬▒ wedge.
+6. SWT Reconstruction (ISWT): (B, N, m + 1, d) ΓåÆ(B, N, d).
+7. Feed-Forward Network: Two 1D convolutional layers with GELU activation.
+8. Output Projection: (B, N, d) ΓåÆ(B, H, N).
+9. De-normalisation: Reverses the RevIN step.
+14
+
+--- PAGE 18 ---
+CHAPTER 5. SYSTEM ARCHITECTURE
+15
+5.2
+SimpleTM FFT Architecture
+Figure 5.2: SimpleTM FFT architecture. The SWT decomposition and reconstruction blocks are replaced
+by FFT spectral-band decomposition and weighted summation. Geometric attention is unchanged.
+The FFT variant replaces only the tokenisation stage. The model key parameters are identical (d model=32,
+m=3, yielding 4 frequency bands), and the same geometric attention with ╬▒ = 1.0 is used. The FFT model
+has 12,808 trainable parameters versus 12,856 for the SWT modelΓÇöeffectively the same parameter count.
+5.3
+Planned SimpleTM++ Hybrid Architecture
+Figure 5.3: Planned SimpleTM++ hybrid architecture. Three parallel tokenisation branches process
+each variate token. A learnable gating network fuses the branch outputs before passing to the shared
+geometric attention encoder and forecast head.
+The hybrid architecture is:
+Thybrid = g╧ê(TSWT, TFFT, TConv)
+where g╧ê is a learnable gating/fusion module (e.g., a softmax-normalised weighted combination with
+per-channel gate weights). All three branches operate at the same m + 1 decomposition depth. The fused
+token is passed to the same geometric attention encoder and forecast projection head.
+
+--- PAGE 19 ---
+Chapter 6
+Exploratory Data Analysis
+6.1
+Overview of EDA Findings
+EDA was conducted using SimpleTM EDA Full.ipynb across all available benchmark datasets. The ETT
+family (ETTh1, ETTh2, ETTm1, ETTm2) was analysed most thoroughly.
+Table 6.1: ETT Dataset Summary Statistics
+Dataset
+Samples
+Features
+Stationary %
+Non-Stationary %
+ETTh1
+17,420
+7
+Γê╝40ΓÇô60
+Γê╝40ΓÇô60
+ETTm1
+69,680
+7
+Γê╝50ΓÇô70
+Γê╝30ΓÇô50
+16
+
+--- PAGE 20 ---
+CHAPTER 6. EXPLORATORY DATA ANALYSIS
+17
+6.2
+Stationarity Analysis
+Figure 6.1: Stationarity analysis (ADF test, p < 0.05) across ETT datasets. Mixed stationarity profiles
+justify the use of multiple tokenisation strategies: fully stationary series favour FFT, non-stationary series
+favour SWT, and heterogeneous datasets motivate hybrid fusion.
+The ADF analysis revealed a mixed stationarity profile for both ETTh1 and ETTm1. According to
+EDA theory [1]:
+ΓÇó Non-stationary series have trends ΓçÆSWT excels at separating the approximation (trend) coefficients
+from detail (oscillation) coefficients.
+ΓÇó Stationary series have stable frequency content ΓçÆFFT excels since global spectral decomposition
+is valid.
+ΓÇó Mixed stationarity across features ΓçÆHybrid fusion can adaptively weigh SWT and FFT
+contributions per channel.
+This is the core EDA-based argument for a hybrid model.
+
+--- PAGE 21 ---
+CHAPTER 6. EXPLORATORY DATA ANALYSIS
+18
+6.3
+FFT Spectrum Analysis
+Figure 6.2: FFT spectrum analysis. ETTm1 (15-minute granularity) exhibits strong, concentrated
+spectral peaks corresponding to daily and weekly periodicities, suggesting that FFT tokenisation should
+capture useful frequency structure.
+The FFT spectrum analysis of ETTm1 shows pronounced spectral peaks at frequencies corresponding
+to daily (96 steps) and weekly (672 steps) cyclesΓÇöa result of the 15-minute sampling interval and
+regular electricity load patterns. This strong periodicity was interpreted as a positive indicator for FFT
+tokenisation. The empirical results, however, show the oppositeΓÇöa finding that is discussed in depth in
+Chapter 8.
+6.4
+Wavelet Decomposition Analysis
+Figure 6.3: Multi-level SWT decomposition of the ETTm1 oil temperature (OT) variate. The approxi-
+mation coefficients capture the slowly-varying trend, while detail coefficients at different levels encode
+fine-grained oscillations and abrupt changes.
+The wavelet decomposition reveals that ETTm1 variates contain energy at multiple scales: significant
+energy is present in both the approximation (low-frequency trend) and detail (high-frequency fluctuation)
+coefficients. This multi-scale energy distribution motivates SWT tokenisation, which explicitly separates
+and preserves each scale.
+
+--- PAGE 22 ---
+CHAPTER 6. EXPLORATORY DATA ANALYSIS
+19
+6.5
+Cross-Channel Correlation
+Figure 6.4: Cross-channel correlation heatmap for different dataset. Strong inter-variate correlations
+validate the channel-mixing inverted embedding used in SimpleTM.
+6.6
+EDA Summary and Tokenisation Justification
+Table 6.2: EDA-Derived Tokenisation Justification
+EDA Observation
+Tokeniser Justified
+Rationale
+Strong
+spectral
+peaks
+(FFT PSD)
+FFT tokenisation
+Directly exploits dominant
+periodic structure
+Multi-scale
+energy
+(wavelet)
+SWT tokenisation
+Separates trend and detail
+at each scale
+Mixed stationarity (ADF)
+Hybrid / SWT
+Non-stationary
+channels
+need temporal-local fre-
+quency analysis
+All three observed together
+Hybrid fusion
+No single tokeniser cap-
+tures all signal types
+The EDA shows that ETTm1 simultaneously exhibits strong periodicity (favours FFT), multi-scale
+dynamics (favours SWT), and local volatility (favours Conv). This co-existence of multiple signal types is
+the core EDA-based argument for the hybrid model.
+
+--- PAGE 23 ---
+Chapter 7
+Experimental Results
+7.1
+ETTh1 Results (seq=96, pred=96)
+Table 7.1: ETTh1 Test Set Results (seq len=96, pred len=96)
+Model
+MSE
+MAE
+RMSE
+MAPE
+MSPE
+SimpleTM (Original)
+0.4513
+0.4462
+0.6718
+0.7283
+42726.52
+SimpleTM SWT
+0.4513
+0.4462
+0.6718
+0.7283
+42726.52
+SimpleTM FFT
+0.4571
+0.4495
+0.6761
+0.7317
+40927.95
+On ETTh1, SimpleTM SWT and the original SimpleTM produce identical results (as expected since they
+are architecturally equivalent). The SimpleTM FFT model achieves a slightly higher MSE (+1.3%) and
+MAE (+0.7%).
+(a) ETTh1 prediction using SimpleTM-SWT
+(b) ETTh1 prediction using SimpleTM-FFT
+Figure 7.1: Prediction comparison on the ETTh1 dataset for the SWT-based and FFT-based SimpleTM
+variants.
+20
+
+--- PAGE 24 ---
+CHAPTER 7. EXPERIMENTAL RESULTS
+21
+7.2
+ETTm1 Results (seq=96, pred=96)
+Table 7.2: ETTm1 Test Set Results (seq len=96, pred len=96)
+Model
+MSE
+MAE
+RMSE
+MAPE
+MSPE
+SimpleTM (Original)
+0.3497
+0.3791
+0.5914
+0.6652
+376.18
+SimpleTM SWT
+0.3497
+0.3791
+0.5914
+0.6652
+376.18
+SimpleTM FFT
+0.3630
+0.3829
+0.6025
+0.6586
+350.89
+On ETTm1, the gap is larger: SimpleTM FFT achieves MSE = 0.3630 compared to SimpleTM SWTΓÇÖs 0.3497,
+a 3.8% relative increase in MSE. This is the key surprising result of the mid-semester experiments.
+(a) ETTm1 prediction using SimpleTM-SWT
+(b) ETTm1 prediction using SimpleTM-FFT
+Figure 7.2: Prediction comparison on the ETTm1 dataset for the SWT-based and FFT-based SimpleTM
+variants.
+
+--- PAGE 25 ---
+CHAPTER 7. EXPERIMENTAL RESULTS
+22
+Figure 7.3: Summary MSE comparison across all three model variants on ETTh1 and ETTm1. The SWT
+variants consistently outperform the FFT variant, with the gap being larger on ETTm1.
+
+--- PAGE 26 ---
+Chapter 8
+Discussion
+8.1
+Why the FFT Model Underperforms on ETTm1
+The EDA suggested that ETTm1 has strong, concentrated spectral peaksΓÇöa property that intuitively
+favours FFT tokenisation. However, the experimental results show a 3.8% MSE degradation for the FFT
+model. This apparent contradiction is explained by the following signal-processing arguments:
+8.1.1
+Stationarity Assumption Violation
+The FFT assumes global stationarity: frequency content is assumed to be constant over the entire sequence
+window. ETTm1, despite having strong spectral peaks in aggregate, exhibits time-varying frequency
+structureΓÇöthe phase and amplitude of periodic components change over time (e.g., load patterns shift
+between weekdays and weekends, or across seasons). The SWT preserves temporal localisation of
+frequency events by operating on a sliding-window basis; the FFT discards this localisation.
+8.1.2
+Phase Information Loss
+The FFT band decomposition implemented in this project retains magnitude structure but effectively loses
+fine-grained phase information during the band-splitting process. Forecasting performance depends
+critically on correctly predicting the phase of recurring events (e.g., the precise timing of the next load
+peak). SWT retains phase by operating in the time domain at each decomposition level.
+8.1.3
+Over-Smoothing from Spectral Averaging
+Dividing the spectrum into m + 1 = 4 hard bands and reconstructing with irfft effectively applies a
+bank of ideal bandpass filters. Ideal bandpass filters in the frequency domain correspond to sinc-function
+convolutions in the time domain, introducing Gibbs ringing artefacts. SWT uses compactly-supported
+wavelet filters (db1/Haar) that avoid this issue.
+8.1.4
+Short-Sequence Context
+With seq len=96, the time series window contains only 96 samples. The frequency resolution of the FFT
+is Γêåf = 1/96 Γëê0.01 cycles per step. At this resolution, many closely-spaced spectral peaks of ETTm1
+are aliased into the same frequency band, reducing the discriminative power of the FFT decomposition.
+The SWT uses multi-scale convolutions that are not resolution-limited in the same way.
+23
+
+--- PAGE 27 ---
+CHAPTER 8. DISCUSSION
+24
+8.1.5
+Implementation Axis Consideration
+The current FFT tokeniser applies the transform along the d model embedding dimension after the
+inverted linear projection. Ideally, FFT should be applied along the temporal axis (dimension L) before
+or during embedding to directly exploit the temporal periodicity identified in EDA. This is a known
+implementation gap identified during the project and is listed as a future improvement.
+8.2
+Why We Should Still Pursue the Hybrid Model
+Despite the FFT modelΓÇÖs underperformance, the hybrid approach remains strongly motivated for the
+following reasons:
+Complementary Information.
+The EDA shows that ETTm1 simultaneously contains all three
+types of structure: periodic components (captured by FFT), multi-scale non-stationary dynamics
+(captured by SWT), and local abrupt changes (captured by local convolutions). No single tokeniser
+captures all three. A hybrid model with learnable gating weights can, in principle, combine these
+complementary views.
+FFT is Not UselessΓÇöIt Captures Different Structure.
+The FFT model achieves MSPE =
+350.89 on ETTm1 versus 376.18 for SWTΓÇöa 6.7% improvement in MSPE despite worse MSE. This
+suggests that the FFT model better captures the relative magnitude patterns (periodic peaks), while the
+SWT model better captures absolute deviations. A hybrid can potentially achieve lower error on both
+metrics.
+Limitations of Current FFT Implementation are Addressable.
+The three main issuesΓÇöstationarity
+violation, short context length, and the wrong transform axisΓÇöare all addressable through engineering:
+ΓÇó Apply FFT along the temporal axis (pre-embedding);
+ΓÇó Use longer context windows (L = 336 or L = 720) to improve frequency resolution;
+ΓÇó Use short-time Fourier transform (STFT) or learnable filterbanks to address non-stationarity within
+the FFT branch.
+When these fixes are applied and the FFT branch is used as one component of a fusion model (rather
+than a standalone tokeniser), its contribution can be positive even on ETTm1.
+Reviewer Evidence.
+ICLR 2025 Reviewer L7y3 [2] explicitly asked: ΓÇ£it would be beneficial to
+characterise other methods [such as DFT] in the context of the proposed tokenisation scheme.ΓÇ¥ This
+BTP provides exactly that characterisation and establishes the experimental baseline for hybrid fusion.
+EDA-Predicted Hybrid Superiority.
+Table 6.2 shows that for datasets with co-existing signal types
+(mixed stationarity + periodicity + local volatility), a hybrid tokeniser is theoretically optimal. The
+theoretical prediction of the hybrid is that it should achieve lower MSE than either SWT or FFT alone on
+ETTm1, because it can route the periodic component through the FFT branch and the transient/trend
+component through the SWT branch.
+8.3
+Comparison with Related Work
+SimpleTM (SWT) achieves MSE = 0.3497 on ETTm1 (seq=96, pred=96) with only 12,856 parameters,
+which is competitive with much larger models including iTransformer and TimeMixer. The FFT variant
+
+--- PAGE 28 ---
+CHAPTER 8. DISCUSSION
+25
+(MSE = 0.3630) demonstrates that even a suboptimal single-mode tokeniser can produce competitive results,
+confirming that the geometric attention mechanism and inverted embedding contribute substantially to
+the modelΓÇÖs performance.
+
+--- PAGE 29 ---
+Chapter 9
+Limitations
+9.1
+Current Implementation Limitations
+L1. FFT axis mismatch: The current FFTEmbedding applies the transform along the d model dimension
+(after the inverted linear embedding) rather than the temporal axis. This means the FFT is not
+directly exploiting the time-domain periodicity identified in EDA. A corrected implementation would
+apply rfft along dimension L before embedding.
+L2. Short context window: All experiments use seq len=96. At 15-minute granularity (ETTm1),
+this corresponds to only 24 hours of history. The FFT frequency resolution at this window size is
+Γêåf = 1/96, limiting the ability to resolve closely-spaced spectral peaks. The SimpleTM paperΓÇÖs area
+chair recommends evaluating longer context lengths for fairer comparison.
+L3. Single prediction horizon: Only pred len=96 was evaluated. The behaviour of FFT vs. SWT
+tokenisation may differ at longer horizons (192, 336, 720), particularly because longer horizons
+require capturing low-frequency trends that SWT handles better.
+L4. Limited dataset coverage: Experiments are currently limited to ETTh1 and ETTm1. The relative
+advantage of different tokenisers may vary significantly on other datasets (Weather, ECL, Traffic)
+that have different dimensionalities and signal characteristics.
+L5. No statistical significance testing: Each model was trained with a single fixed random seed
+(2025). ICLR 2025 Reviewer avrv [2] specifically noted the absence of error bars and multiple-seed
+evaluation. With a single seed, the observed MSE differences (1ΓÇô4%) cannot be declared statistically
+significant.
+L6. Hard frequency band partition: The current FFT tokeniser uses hard (non-overlapping, rectan-
+gular) frequency band masks. Hard masks cause Gibbs artefacts in the reconstructed time-domain
+signals. Overlapping soft Gaussian masks or learnable filterbanks would be more appropriate.
+L7. Hybrid model not yet implemented: The core contribution of the project (the SimpleTM++
+hybrid architecture) remains in the design phase. The mid-semester deliverable establishes the
+baselines and analysis; the hybrid implementation is the primary remaining task.
+L8. No ablation over ╬▒ and m: The geometric attention weight ╬▒ and decomposition depth m were
+fixed at 1.0 and 3 respectively. An ablation over these hyperparameters for each tokeniser could
+reveal configuration-dependent interactions.
+26
+
+--- PAGE 30 ---
+CHAPTER 9. LIMITATIONS
+27
+L9. Convolutional branch not implemented: The third tokenisation strategy (local convolutional
+tokenisation, motivated by local volatility in EDA) has not been implemented yet.
+L10. No long-context evaluation: PatchTST and other patch-based models are known to improve
+substantially with longer context lengths. A fair comparison with these baselines requires evaluating
+at L = 336 or L = 720.
+9.2
+Limitations Addressed by the Hybrid Model
+The planned SimpleTM++ hybrid architecture directly addresses several of the above limitations:
+Table 9.1: Limitations Addressed by SimpleTM++ Hybrid Architecture
+Limitation
+How Hybrid Addresses It
+L1: FFT axis mismatch
+In the hybrid, FFT can be applied along the
+temporal axis within a dedicated temporal-
+FFT branch
+L6: Hard frequency bands
+Learnable convolutional branch with smooth
+kernels replaces hard FFT bands for local spec-
+tral capture
+L3: Single horizon
+Hybrid gating can adapt branch weights per
+prediction horizon length
+L7: Hybrid not implemented
+This is the primary next deliverable
+L9: Conv branch missing
+Third branch of hybrid; motivated by local
+volatility observed in EDA
+
+--- PAGE 31 ---
+Chapter 10
+Future Work
+10.1
+Immediate Tasks (Next 2 Weeks)
+1. Fix the FFT tokeniser axis: apply rfft along the temporal dimension (L) before the inverted
+embedding.
+2. Re-run ETTm1 and ETTh1 experiments with the corrected FFT implementation.
+3. Evaluate at multiple prediction horizons: pred len Γêê{96, 192, 336, 720}.
+4. Run experiments with longer context lengths: seq len Γêê{336, 720}.
+10.2
+Main Planned Extensions
+1. Convolutional tokeniser: Implement local Conv1D tokenisation branch (variable kernel size).
+2. SimpleTM++ hybrid: Implement three-branch parallel tokenisation with learnable gating fusion.
+3. Multi-dataset evaluation: Run ablations on Weather, ECL, and Traffic datasets.
+4. Multi-seed evaluation: Use 5 seeds and report mean ┬▒ std for all metrics.
+5. Soft FFT filterbanks: Replace hard band masks with learnable Gaussian or overlapping frequency
+masks.
+6. EDA-based routing: Investigate whether EDA-derived dataset features can predict or initialise
+the gating weights.
+10.3
+Expected Final Contribution
+The completed project will provide:
+ΓÇó A systematic tokeniser ablation study across multiple ETT and non-ETT datasets;
+ΓÇó A corrected, fair FFT baseline with temporal-axis decomposition;
+ΓÇó A working SimpleTM++ hybrid model with empirical comparison;
+ΓÇó Analysis of EDA-to-tokeniser alignment and its predictive validity;
+ΓÇó A codebase extending the official SimpleTM repository as an open-source contribution.
+28
+
+--- PAGE 32 ---
+Chapter 11
+Conclusion
+This mid-semester report presents the progress of the SimpleTM++ B.Tech Project, which investigates
+adaptive tokenisation strategies for lightweight multivariate time series forecasting. Building on the
+SimpleTM framework [1] accepted at ICLR 2025, the project implements a controlled ablation between
+SWT and FFT tokenisation strategies, while keeping the geometric attention mechanism unchanged.
+The key experimental finding is that SimpleTM FFT underperforms SimpleTM SWT on both ETTh1
+and ETTm1, with the gap being more pronounced on ETTm1 (3.8% MSE). This is counterintuitive
+given the strong periodic structure observed in EDA, and is attributed to the FFTΓÇÖs global stationarity
+assumption, phase information loss, and the short-context frequency resolution limitation.
+Despite this result, the hybrid model remains strongly motivated. The EDA confirms that ETTm1
+exhibits co-existing signal types that no single tokeniser can fully capture, the FFT model exhibits
+complementary behaviour to SWT on the MSPE metric, and the FFT implementation gaps are addressable
+through axis correction and longer context evaluation.
+The remaining project work focuses on implementing the full SimpleTM++ hybrid architecture, expand-
+ing the experimental evaluation to multiple datasets and horizons, and conducting multi-seed statistical
+analysis.
+29
+
+--- PAGE 33 ---
+Bibliography
+[1] H. Chen, V. Luong, L. Mukherjee, and V. Singh, ΓÇ£SimpleTM: A simple baseline for multivariate
+time series forecasting,ΓÇ¥ in International Conference on Learning Representations (ICLR), 2025.
+[Online]. Available: https://openreview.net/forum?id=oANkBaVci5
+[2] OpenReview, ΓÇ£Peer review of ΓÇÿSimpleTMΓÇÖ (Submission 3089),ΓÇ¥ ICLR 2025 Conference Reviews, 2025.
+[Online]. Available: https://openreview.net/forum?id=oANkBaVci5
+[3] Singh Group, ΓÇ£SimpleTM official implementation,ΓÇ¥ GitHub repository, 2024. [Online]. Available:
+https://github.com/vsingh-group/SimpleTM
+[4] A. Swami, ΓÇ£SimpleTMG: BTP extension of SimpleTM with SWT and FFT tokenisation variants,ΓÇ¥
+GitHub repository, 2026. [Online]. Available: https://github.com/agamswami/SimpleTMG
+[5] A. Vaswani, N. Shazeer, N. Parmar, J. Uszkoreit, L. Jones, A. N. Gomez, L. Kaiser, and I. Polosukhin,
+ΓÇ£Attention is all you need,ΓÇ¥ in Advances in Neural Information Processing Systems (NeurIPS), 2017.
+[6] H. Zhou, S. Zhang, J. Peng, S. Zhang, J. Li, H. Xiong, and W. Zhang, ΓÇ£Informer: Beyond efficient
+transformer for long sequence time-series forecasting,ΓÇ¥ in Proceedings of the AAAI Conference on
+Artificial Intelligence, 2021.
+[7] H. Wu, J. Xu, J. Wang, and M. Long, ΓÇ£Autoformer: Decomposition transformers with auto-correlation
+for long-term series forecasting,ΓÇ¥ in Advances in Neural Information Processing Systems (NeurIPS),
+2021.
+[8] Y. Nie, N. H. Nguyen, P. Sinthong, and J. Kalagnanam, ΓÇ£A time series is worth 64 words: Long-term
+forecasting with transformers,ΓÇ¥ in International Conference on Learning Representations (ICLR),
+2023.
+[9] T. Zhou, Z. Ma, Q. Wen, X. Wang, L. Sun, and R. Jin, ΓÇ£FEDformer: Frequency enhanced decomposed
+transformer for long-term series forecasting,ΓÇ¥ in International Conference on Machine Learning
+(ICML), 2022.
+[10] A. V. Oppenheim and R. W. Schafer, Discrete-Time Signal Processing, 2nd ed. Upper Saddle River,
+NJ, USA: Prentice Hall, 1999.
+[11] S. Mallat, A Wavelet Tour of Signal Processing: The Sparse Way, 3rd ed. Burlington, MA, USA:
+Academic Press, 2009.
+30
+

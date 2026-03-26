@@ -5,16 +5,16 @@ from math import sqrt
 import pywt
 
 
-class WaveletEmbedding(nn.Module):
+class WaveletEmbedding(nn.Module): # Wavelet Embedding is a technique that is used to embed the wavelet coefficients into a lower-dimensional space.
     def __init__(self, d_channel=16, swt=True, requires_grad=False, wv='db2', m=2,
                  kernel_size=None):
         super().__init__()
 
         self.swt = swt
-        self.d_channel = d_channel
+        self.d_channel = d_channel # d_channel is the number of channels in the input.
         self.m = m  # Number of decomposition levels of detailed coefficients
         
-        if kernel_size is None:
+        if kernel_size is None: # for fixed 
             self.wavelet = pywt.Wavelet(wv)
             if self.swt:
                 h0 = torch.tensor(self.wavelet.dec_lo[::-1], dtype=torch.float32)
@@ -25,12 +25,12 @@ class WaveletEmbedding(nn.Module):
             self.h0 = nn.Parameter(torch.tile(h0[None, None, :], [self.d_channel, 1, 1]), requires_grad=requires_grad)
             self.h1 = nn.Parameter(torch.tile(h1[None, None, :], [self.d_channel, 1, 1]), requires_grad=requires_grad)
             self.kernel_size = self.h0.shape[-1]
-        else:
+        else: # for learnable
             self.kernel_size = kernel_size
             self.h0 = nn.Parameter(torch.Tensor(self.d_channel, 1, self.kernel_size), requires_grad=requires_grad)
-            self.h1 = nn.Parameter(torch.Tensor(self.d_channel, 1, self.kernel_size), requires_grad=requires_grad)
-            nn.init.xavier_uniform_(self.h0)
-            nn.init.xavier_uniform_(self.h1)
+            self.h1 = nn.Parameter(torch.Tensor(self.d_channel, 1, self.kernel_size), requires_grad=requires_grad) #for making filter learnable
+            nn.init.xavier_uniform_(self.h0) # Xavier initialization is a weight initialization technique used in neural networks to help with training stability and performance.
+            nn.init.xavier_uniform_(self.h1) # i.e Randomly initializes them.
         
             with torch.no_grad():
                 self.h0.data = self.h0.data / torch.norm(self.h0.data, dim=-1, keepdim=True)
@@ -47,13 +47,13 @@ class WaveletEmbedding(nn.Module):
     def swt_decomposition(self, x, h0, h1, depth, kernel_size):
         approx_coeffs = x
         coeffs = []
-        dilation = 1
+        dilation = 1 #dilation is the distance between the kernel elements.
         for _ in range(depth):
             padding = dilation * (kernel_size - 1)
             padding_r = (kernel_size * dilation) // 2
             pad = (padding - padding_r, padding_r)
             approx_coeffs_pad = F.pad(approx_coeffs, pad, "circular")
-            detail_coeff = F.conv1d(approx_coeffs_pad, h1, dilation=dilation, groups=x.shape[1])
+            detail_coeff = F.conv1d(approx_coeffs_pad, h1, dilation=dilation, groups=x.shape[1]) #convloution on T
             approx_coeffs = F.conv1d(approx_coeffs_pad, h0, dilation=dilation, groups=x.shape[1])
             coeffs.append(detail_coeff)
             dilation *= 2
@@ -75,8 +75,8 @@ class WaveletEmbedding(nn.Module):
             detail_coeff_pad = F.pad(detail_coeff, pad, "circular")
             
             y = F.conv1d(approx_coeff_pad, g0, groups=approx_coeff.shape[1], dilation=dilation) + \
-                F.conv1d(detail_coeff_pad, g1, groups=detail_coeff.shape[1], dilation=dilation)
-            approx_coeff = y / 2
+                F.conv1d(detail_coeff_pad, g1, groups=detail_coeff.shape[1], dilation=dilation) # approx_coeff.shape[1] is the number of channels
+            approx_coeff = y / 2   # scaling factor
             dilation //= 2
             
         return approx_coeff
@@ -93,7 +93,7 @@ class GeomAttentionLayer(nn.Module):
         
         self.swt = WaveletEmbedding(d_channel=self.d_channel, swt=True, requires_grad=requires_grad, wv=wv, m=m, kernel_size=kernel_size)
         self.query_projection = nn.Sequential(
-            nn.Linear(d_model, d_model),
+            nn.Linear(d_model, d_model), 
             nn.Dropout(geomattn_dropout)
         )
         self.key_projection = nn.Sequential(
@@ -142,8 +142,8 @@ class GeomAttention(nn.Module):
         self.alpha = alpha 
 
     def forward(self, queries, keys, values, attn_mask=None):
-        B, L, H, E = queries.shape
-        _, S, _, _ = values.shape
+        B, L, H, E = queries.shape # B is batch size, L is sequence length, H is number of heads, E is embedding dimension
+        _, S, _, _ = values.shape # S is sequence length and heads is same as L
         scale = self.scale or 1. / sqrt(E)
 
         dot_product = torch.einsum("blhe,bshe->bhls", queries, keys)

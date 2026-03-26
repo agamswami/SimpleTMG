@@ -28,7 +28,7 @@ class Normalize(nn.Module):
         return x
 
     def _init_params(self):
-        self.affine_weight = nn.Parameter(torch.ones(self.num_features))
+        self.affine_weight = nn.Parameter(torch.ones(self.num_features))      #initialising thlike This avoids disturbing the normalized values.
         self.affine_bias = nn.Parameter(torch.zeros(self.num_features))
 
     def _get_statistics(self, x):

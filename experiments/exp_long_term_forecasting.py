@@ -25,7 +25,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         model = self.model_dict[self.args.model].Model(self.args).float()
 
         if self.args.use_multi_gpu and self.args.use_gpu:
-            model = nn.DataParallel(model, device_ids=self.args.device_ids)
+            model = nn.DataParallel(model, device_ids=self.args.device_ids)        #wrapper for using multiple gpu
         return model
 
     def _get_data(self, flag):
@@ -38,15 +38,15 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
     def _select_criterion(self):
         if self.args.data == 'PEMS':
-            criterion = nn.L1Loss()
+            criterion = nn.L1Loss()  #Mean Absolute Error
         else:
-            criterion = nn.MSELoss()
+            criterion = nn.MSELoss() #Mean Squared Error
         return criterion
 
     def vali(self, vali_data, vali_loader, criterion):
         total_loss = []
         self.model.eval()
-        with torch.no_grad():
+        with torch.no_grad():    #Disables gradient computation.
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
                 batch_x = batch_x.float().to(self.device)
                 batch_y = batch_y.float()
@@ -58,10 +58,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     batch_x_mark = batch_x_mark.float().to(self.device)
                     batch_y_mark = batch_y_mark.float().to(self.device)
 
-                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
+                dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float() #creates a tensor of zeros that has the same shape as the future part of batch_y.
+                dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device) #cat is concatinate
 
-                if self.args.use_amp:
+                if self.args.use_amp:        #Automatic Mixed Precision (AMP) is a technique in deep learning that uses both 32-bit and 16-bit floating point numbers during training to make training faster and use less GPU memory, while keeping model accuracy.
                     with torch.cuda.amp.autocast():
                         if self.args.output_attention:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
@@ -73,11 +73,11 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     else:
                         outputs, _ = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                 f_dim = -1 if self.args.features == 'MS' else 0
-                outputs = outputs[:, -self.args.pred_len:, f_dim:]
+                outputs = outputs[:, -self.args.pred_len:, f_dim:] # in this  --self.args.pred_len is done only for safty
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
 
-                pred = outputs.detach().cpu()
-                true = batch_y.detach().cpu()
+                pred = outputs.detach().cpu() #detach() is used to remove the tensor from the computation graph.
+                true = batch_y.detach().cpu() #cpu() is used to move the tensor from the GPU to the CPU.
 
                 if self.args.data == 'PEMS':
                     B, T, C = pred.shape
@@ -95,7 +95,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         self.model.train()
         return total_loss
 
-    def train(self, setting):
+    def train(self, setting):      #start again from here
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')

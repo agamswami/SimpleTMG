@@ -1,0 +1,579 @@
+
+######################################################################
+# EDA NOTEBOOK
+######################################################################
+
+--- Cell 0 [MARKDOWN] ---
+# SimpleTM ΓÇö Exploratory Data Analysis
+## BTP Project: SWT vs FFT Tokenization for Multivariate Time Series Forecasting
+
+This notebook explores the ETTh1 dataset and analyzes signal characteristics re
+
+--- Cell 1 [MARKDOWN] ---
+## 1. Setup & Data Loading
+
+--- Cell 2 [CODE OUTPUT] ---
+Source preview: !pip install PyWavelets gdown statsmodels --quiet
+
+import numpy as np
+import pandas as pd
+import mat...
+Libraries loaded.
+
+
+--- Cell 3 [CODE OUTPUT] ---
+Source preview: import os, gdown, zipfile
+
+FILE_ID = '1hTpUrhe1yEIGa9mCiGxM5rDyzlYKAnyx'
+OUTPUT = '/kaggle/working/d...
+ETTh1 path: /kaggle/working/dataset/SimpleTM_datasets/ETT-small/ETTh1.csv
+Shape: (17420, 7)
+
+                      HUFL   HULL   MUFL   MULL   LUFL   LULL         OT
+date                                                                    
+2016-07-01 00:00:00  5.827  2.009  1.599  0.462  4.203  1.340  30.531000
+2016-07-01 01:00:00  5.693  2.076  1.492  0.426  4.142  1.371  27.787001
+2016-07-01 02:00:00  5.157  1.741  1.279  0.355  3.777  1.218  27.787001
+2016-07-01 03:00:00  5.090  1.942  1.279  0.391  3.807  1.279  25.044001
+2016-07-01 04:00:00  5.358  1.942  1.492  0.462  3.868  1.279 
+
+--- Cell 4 [MARKDOWN] ---
+## 2. Basic Statistics & Overview
+
+--- Cell 5 [CODE OUTPUT] ---
+Source preview: print('='*60)
+print('DATASET OVERVIEW')
+print('='*60)
+print(f'Time range : {df.index[0]} ΓåÆ {df.index...
+============================================================
+DATASET OVERVIEW
+============================================================
+Time range : 2016-07-01 00:00:00 ΓåÆ 2018-06-26 19:00:00
+Duration   : 725 days
+Samples    : 17420
+Features   : ['HUFL', 'HULL', 'MUFL', 'MULL', 'LUFL', 'LULL', 'OT']
+Freq       : Hourly (inferred: h)
+
+Missing values:
+HUFL    0
+HULL    0
+MUFL    0
+MULL    0
+LUFL    0
+LULL    0
+OT      0
+dtype: int64
+
+            HUFL       HULL       MUFL       MULL       LUFL       LULL  \
+count  17420.000  17420.000  17420.000  17420.000  17420.000  17420.000   
+mean       7.375      2.242      4.300      0.882      3.066      0.857   
+std        7.068      2.042      6.827      1.809      1.165      0.600   
+min      -22.706     -4.756    -25.088     -5.934     -1.188     -1.371   
+25%        5.827      0.737      3.296     -0.284      2.315      0.670   
+50%        8.774      2.210      5.970      0.959      2.833      0.975   
+75%       11.788      3.684      8.635      2.203      3.625      1.218   
+max       23.644     10.114     17.341      7.747      8.498      3.046   
+
+              OT  
+count  17420.000  
+mean      13.325  
+std        8.567  
+min       -4.080  
+25%        6.964  
+50%       11.396  
+75%       18.079  
+max       46.007  
+
+
+--- Cell 6 [CODE OUTPUT] ---
+Source preview: fig, axes = plt.subplots(2, 4, figsize=(18, 8))
+for i, col in enumerate(df.columns):
+    ax = axes[i...
+<Figure size 1800x800 with 8 Axes>
+
+--- Cell 7 [MARKDOWN] ---
+## 3. Time Series Visualization
+
+--- Cell 8 [CODE OUTPUT] ---
+Source preview: fig, axes = plt.subplots(len(df.columns), 1, figsize=(16, 3*len(df.columns)), sharex=True)
+colors = ...
+<Figure size 1600x2100 with 7 Axes>
+
+--- Cell 9 [CODE OUTPUT] ---
+Source preview: # Zoom into first 2 weeks (336 hours)
+zoom = df.iloc[:336]
+fig, ax = plt.subplots(figsize=(16, 5))
+f...
+<Figure size 1600x500 with 1 Axes>
+
+--- Cell 10 [MARKDOWN] ---
+## 4. Correlation & Cross-Variate Analysis
+
+--- Cell 11 [CODE OUTPUT] ---
+Source preview: fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+
+# Pearson correlation
+corr = df.corr()
+mask = np.tr...
+<Figure size 1600x600 with 4 Axes>
+
+Highly correlated pairs (|r| > 0.7):
+  HUFL Γåö MUFL: r = 0.987
+  HULL Γåö MULL: r = 0.930
+
+
+--- Cell 12 [CODE OUTPUT] ---
+Source preview: # Rolling correlation of each feature with target (OT)
+fig, ax = plt.subplots(figsize=(16, 5))
+windo...
+<Figure size 1600x500 with 1 Axes>
+
+--- Cell 13 [MARKDOWN] ---
+## 5. Stationarity Testing (ADF)
+
+--- Cell 14 [CODE OUTPUT] ---
+Source preview: from statsmodels.tsa.stattools import adfuller
+
+print(f'{"Feature":<10} {"ADF Stat":>10} {"p-value":...
+Feature      ADF Stat    p-value  Stationary?
+---------------------------------------------
+HUFL          -8.5640   0.000000        Γ£ô Yes
+HULL          -4.7427   0.000070        Γ£ô Yes
+MUFL          -8.5550   0.000000        Γ£ô Yes
+MULL          -4.4891   0.000206        Γ£ô Yes
+LUFL          -5.4412   0.000003        Γ£ô Yes
+LULL          -4.7165   0.000078        Γ£ô Yes
+OT            -3.7595   0.003350        Γ£ô Yes
+
+ΓåÆ Non-stationary features benefit more from SWT/FFT decomposition
+  as it separates trend from oscillatory components.
+
+
+--- Cell 15 [MARKDOWN] ---
+## 6. Trend & Seasonality Decomposition
+
+--- Cell 16 [CODE OUTPUT] ---
+Source preview: from statsmodels.tsa.seasonal import seasonal_decompose
+
+# Decompose target variable OT
+decomp = sea...
+<Figure size 1600x1200 with 4 Axes>
+Trend variance     : 56.0696
+Seasonal variance  : 1.2320
+Residual variance  : 1.9706
+Seasonal strength  : 0.3847
+
+
+--- Cell 17 [CODE OUTPUT] ---
+Source preview: # Autocorrelation for all features
+from statsmodels.graphics.tsaplots import plot_acf
+
+fig, axes = p...
+<Figure size 1800x800 with 8 Axes>
+
+--- Cell 18 [MARKDOWN] ---
+## 7. Frequency Spectrum Analysis (FFT)
+
+This section directly relates to our **FFT tokenization** variant ΓÇö it shows what frequency components exist in the data and how FFT band splitting captures th
+
+--- Cell 19 [CODE OUTPUT] ---
+Source preview: fig, axes = plt.subplots(2, 4, figsize=(18, 8))
+for i, col in enumerate(df.columns):
+    ax = axes[i...
+<Figure size 1800x800 with 8 Axes>
+
+--- Cell 20 [CODE OUTPUT] ---
+Source preview: # FFT Band Decomposition (as our FFT model does it)
+signal = df['OT'].values[:96] - df['OT'].values[...
+<Figure size 1400x1500 with 5 Axes>
+Reconstruction MSE: 1.39e-30 (should be ~0 for perfect reconstruction)
+
+
+--- Cell 21 [MARKDOWN] ---
+## 8. Wavelet Decomposition Analysis (SWT)
+
+This section shows what the **SWT tokenization** (original SimpleTM) captures ΓÇö multi-scale wavelet coefficients at different resolution levels.
+
+--- Cell 22 [CODE OUTPUT] ---
+Source preview: # SWT decomposition (as our SWT model does it)
+signal_ot = df['OT'].values[:96].astype(np.float64)
+s...
+<Figure size 1400x1500 with 5 Axes>
+
+--- Cell 23 [MARKDOWN] ---
+## 9. SWT vs FFT Representation Comparison
+
+Side-by-side comparison of how SWT and FFT decompose the same signal ΓÇö the core question of our BTP project.
+
+--- Cell 24 [CODE OUTPUT] ---
+Source preview: signal = df['OT'].values[:96].astype(np.float64)
+signal = signal - signal.mean()
+m = 3
+
+# FFT bands
+...
+<Figure size 1600x1200 with 8 Axes>
+
+Energy Distribution Across Bands:
+Band                      FFT %      SWT %
+------------------------------------------
+Low Freq / Approx         86.7%      54.8%
+Low-Mid / Detail 3         7.4%       4.7%
+Mid-High / Detail 2        2.5%      10.7%
+High / Detail 1            3.4%      29.9%
+
+
+--- Cell 25 [MARKDOWN] ---
+## 10. Train / Validation / Test Split Visualization
+
+--- Cell 26 [CODE OUTPUT] ---
+Source preview: # ETTh1 standard split
+n = len(df)
+train_end = 12 * 30 * 24       # 12 months
+val_end = train_end + ...
+<Figure size 1600x500 with 1 Axes>
+<Figure size 1500x400 with 3 Axes>
+
+--- Cell 27 [MARKDOWN] ---
+## 11. Model Results Comparison
+
+Results from our Kaggle training run (ETTh1, seq=96, pred=96, d_model=32).
+
+--- Cell 28 [CODE OUTPUT] ---
+Source preview: # Results from our training run
+results = pd.DataFrame({
+    'Model': ['SimpleTM\n(SWT+GeomAttn)', '...
+<Figure size 1600x500 with 3 Axes>
+
+Key Findings:
+  ΓÇó FFT MSE overhead vs SWT: 1.29%
+  ΓÇó FFT MAE overhead vs SWT: 0.74%
+  ΓÇó FFT saves 48 parameters (no wavelet filters)
+  ΓÇó Both tokenizations work with geometric attention ΓÇö FFT is competitive
+
+
+--- Cell 29 [MARKDOWN] ---
+## Summary
+
+### Key Observations:
+1. **ETTh1 has strong 24h seasonality** ΓÇö both SWT and FFT can capture this
+2. **Non-stationary features** like HUFL, HULL benefit from multi-scale decomposition
+3. *
+
+######################################################################
+# TRAINING NOTEBOOK
+######################################################################
+
+--- Cell 0 [MARKDOWN] ---
+# SimpleTM ΓÇö Multivariate Time Series Forecasting
+
+## BTP Project: Comparing SWT vs FFT Tokenization
+
+This notebook runs all 3 model variants:
+1. **SimpleTM** ΓÇö Original (SWT tokenization + Geometric 
+
+--- Cell 1 [MARKDOWN] ---
+## 1. Setup & Install Dependencies
+
+--- Cell 2 [CODE OUTPUT] ---
+Source preview: !pip install PyWavelets gdown --quiet
+
+import torch
+print(f"PyTorch version: {torch.__version__}")
+p...
+PyTorch version: 2.9.0+cu126
+CUDA available: True
+GPU: Tesla T4
+
+
+--- Cell 4 [MARKDOWN] ---
+## 2. Clone Repository
+
+--- Cell 5 [CODE OUTPUT] ---
+Source preview: import os
+
+# Clone the repo (update URL to your fork if needed)
+REPO_URL = "https://github.com/agams...
+Cloning into '/kaggle/working/SimpleTM'...
+remote: Enumerating objects: 57, done.[K
+remote: Counting objects: 100% (57/57), done.[K
+remote: Compressing objects: 100% (40/40), done.[K
+remote: Total 57 (delta 12), reused 57 (delta 12), pack-reused 0 (from 0)[K
+Receiving objects: 100% (57/57), 7.08 MiB | 27.90 MiB/s, done.
+Resolving deltas: 100% (12/12), done.
+Repository cloned.
+Working directory: /kaggle/working/SimpleTM
+total 5728
+drwxr-xr-x 10 root root    4096 Mar 10 07:02  .
+drwxr-xr-x  4 root root    4096 Mar 10 07:02  ..
+-rw-r--r--  1 root root 5093822 Mar 10 07:02  3089_SimpleTM_A_Simple_Baselin.pdf
+-rw-r--r--  1 root root  233348 Mar 10 07:02  btp_context.pdf
+drwxr-xr-x  2 root root    4096 Mar 10 07:02  data_provider
+-rw-r--r--  1 root root     301 Mar 10 07:02  Dockerfile
+-rw-r--r--  1 root root     268 Mar 10 07:02  environment.yml
+drwxr-xr-x  2 root root    4096 Mar 10 07:02  experiments
+drwxr-xr-x  2 root root    4096 Mar 10 07:02  figures
+drwxr-xr-x  8 root root    4096 Mar 10 07:02  .git
+-rw-r--r--  1 root root      23 Mar 10 07:02  .gitignore
+drwxr-xr-x  2 root root    4096 Mar 10 07:02  layers
+drwxr-xr-x  2 root root    4096 Mar 10 07:02  model
+-rw-r--r--  1 root root   17780 Mar 10 07:02  README.md
+-rw-r--r--  1 root root   10136 Mar 10 07:02  run.py
+drwxr-xr-x  3 root root    4096 Mar 10 07:02  scripts
+-rw-r--r--  1 root root  415108 Mar 10 07:02 'SimpleTM_ A Simple Baseline for Multivariate Time Series Forecasting _ OpenReview.pdf'
+-rw-r--r--  1 root root   27018 Mar 10 07:02  SimpleTM_Kaggle.ipynb
+-rw-r--r--  1 root root    1406 Mar 10 07:02  test_models.py
+drwxr-xr-x  2 root root    4096 Mar 10 07:02  utils
+
+
+--- Cell 7 [MARKDOWN] ---
+## 2b. Copy Extended Model Files
+
+If you uploaded the extended files (SimpleTM_SWT.py, SimpleTM_FFT.py, FFTAttention_Family.py) to Kaggle as a dataset, copy them here. Otherwise, create them inline be
+
+--- Cell 12 [MARKDOWN] ---
+## 3. Download Dataset
+
+Download the dataset from Google Drive using `gdown`.
+
+--- Cell 13 [CODE OUTPUT] ---
+Source preview: !pip install gdown --quiet
+import gdown
+import zipfile
+
+# Google Drive file ID
+FILE_ID = "1hTpUrhe1y...
+Downloading...
+From (original): https://drive.google.com/uc?id=1hTpUrhe1yEIGa9mCiGxM5rDyzlYKAnyx
+From (redirected): https://drive.google.com/uc?id=1hTpUrhe1yEIGa9mCiGxM5rDyzlYKAnyx&confirm=t&uuid=887b3826-c1c5-4d24-a0df-74d1a85e1e4d
+To: /kaggle/working/dataset.zip
+100%|ΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûêΓûê| 171M/171M [00:02<00:00, 81.5MB/s] 
+
+Extracted dataset to ./dataset
+dataset/
+  __MACOSX/
+    ._SimpleTM_datasets (0.00 MB)
+    SimpleTM_datasets/
+      ._PEMS (0.00 MB)
+      ._Solar (0.00 MB)
+      ._electricity (0.00 MB)
+      ._.DS_Store (0.00 MB)
+      ._weather (0.00 MB)
+      ._ETT-small (0.00 MB)
+      ._traffic (0.00 MB)
+      Solar/
+        ._solar_AL.txt (0.00 MB)
+      traffic/
+        ._.DS_Store (0.00 MB)
+        ._traffic.csv (0.00 MB)
+      PEMS/
+        ._PEMS03.npz (0.00 MB)
+        ._PEMS07.npz (0.00 MB)
+        ._PEMS04.npz (0.00 MB)
+        ._PEMS08.npz (0.00 MB)
+      ETT-small/
+        ._ETTh1.csv (0.00 MB)
+        ._ETTh2.csv (0.00 MB)
+        ._ETTm1.csv (0.00 MB)
+        ._ETTm2.csv (0.00 MB)
+      weather/
+        ._weather.csv (0.00 MB)
+      electricity/
+        ._electricity.csv (0.00 MB)
+        ._.DS_Store (0.00 MB)
+  SimpleTM_datasets/
+    .DS_Store (0.01 MB)
+    Solar/
+      solar_AL.txt (171.68 MB)
+    traffic/
+      .DS_Store (0.01 MB)
+      traffic.csv (130.16 MB)
+    PEMS/
+      PEMS04.npz (31.43 MB)
+      PEMS08.npz (17.67 MB)
+      PEMS07.npz (41.68 MB)
+      PEMS03.npz (15.07 MB)
+    ETT-small/
+      ETTm1.csv (9.88 MB)
+      ETTh1.csv (2.47 MB)
+      ETTm2.csv (9.23 MB)
+      ETTh2.csv (2.31 MB)
+    weather/
+      weather.csv (6.90 MB)
+    electricity/
+      .DS_Store (0.01 MB)
+      electricity.csv (91.15 MB)
+
+
+--- Cell 14 [MARKDOWN] ---
+## 4. Configuration
+
+Set up common experiment parameters. **Adjust `ROOT_PATH` and `DATA_PATH` based on your dataset structure.**
+
+--- Cell 15 [CODE OUTPUT] ---
+Source preview: # ======================================================================
+# CONFIGURE THESE BASED ON ...
+Dataset: ETTh1 (ETTh1.csv)
+Variates: 7, Seq: 96, Pred: 96
+Model: d_model=32, d_ff=32, layers=1
+
+
+--- Cell 16 [MARKDOWN] ---
+## 5. Train Original SimpleTM (SWT + Geometric Attention)
+
+--- Cell 17 [CODE OUTPUT] ---
+Source preview: !python -u run.py \
+  --is_training 1 \
+  --model SimpleTM \
+  --model_id {DATA_TYPE}_original \
+  -...
+Args in experiment:
+Namespace(is_training=1, model_id='ETTh1_original', model='SimpleTM', data='ETTh1', root_path='/kaggle/working/SimpleTM/dataset/SimpleTM_datasets/ETT-small', data_path='ETTh1.csv', features='M', target='OT', freq='h', checkpoints='./checkpoints/', seq_len=96, label_len=0, pred_len=96, enc_in=7, dec_in=7, c_out=7, n_heads=8, d_layers=1, moving_avg=25, factor=1, distil=True, dropout=0.1, geomattn_dropout=0.5, embed='timeF', activation='gelu', do_predict=False, num_workers=2, itr=1, train_epochs=10, batch_size=32, patience=3, learning_rate=0.0001, des='test', loss='MSE', lradj='type1', pct_start=0.2, use_amp=False, use_gpu=True, gpu=0, use_multi_gpu=False, devices='0,1,2,3', exp_name='MTSF', channel_independence=False, inverse=False, class_strategy='projection', target_root_path='./data/electricity/', target_data_path='electricity.csv', efficient_training=False, use_norm=True, partial_start_index=0, requires_grad=True, wv='db1', m=3, kernel_size=None, alpha=1.0, l1_weight=5e-05, d_model=32, d_ff=32, e_layers=1, compile=False, output_attention=False, fix_seed=2025)
+Use GPU: cuda:0
+Total trainable parameters: 12856
+Memory usage for trainable parameters: 0.05 MB
+Static memory footprint (allocated): 0.06 MB
+Static memory footprint (reserved): 2.00 MB
+>>>>>>>start training : ETTh1_original_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True>>>>>>>>>>>>>>>>>>>>>>>>>>
+train 8449
+val 2785
+test 2785
+	iters: 30, epoch: 1 | loss: 0.6559232
+	speed: 0.1148s/iter; left time: 299.7879s
+	iters: 60, epoch: 1 | loss: 0.6726899
+	speed: 0.0671s/iter; left time: 173.2914s
+	iters: 90, epoch: 1 | loss: 0.5831890
+	speed: 0.0688s/iter; left time: 175.5360s
+	iters: 120, epoch: 1 | loss: 0.5076125
+	speed: 0.0685s/iter; left time: 172.7826s
+	iters: 150, epoch: 1 | loss: 0.5493618
+	speed: 0.0662s/iter; left time: 164.9207s
+	iters: 180, epoch: 1 | loss: 0.5446462
+	speed: 0.0656s/iter; left time: 161.3709s
+	iters: 210, epoch: 1 | loss: 0.4428372
+	speed: 0.0684s/ite
+
+--- Cell 18 [MARKDOWN] ---
+## 6. Train SimpleTM_SWT (SWT-Only Baseline)
+
+--- Cell 19 [CODE OUTPUT] ---
+Source preview: !python -u run.py \
+  --is_training 1 \
+  --model SimpleTM_SWT \
+  --model_id {DATA_TYPE}_SWT \
+  --...
+Args in experiment:
+Namespace(is_training=1, model_id='ETTh1_SWT', model='SimpleTM_SWT', data='ETTh1', root_path='/kaggle/working/SimpleTM/dataset/SimpleTM_datasets/ETT-small', data_path='ETTh1.csv', features='M', target='OT', freq='h', checkpoints='./checkpoints/', seq_len=96, label_len=0, pred_len=96, enc_in=7, dec_in=7, c_out=7, n_heads=8, d_layers=1, moving_avg=25, factor=1, distil=True, dropout=0.1, geomattn_dropout=0.5, embed='timeF', activation='gelu', do_predict=False, num_workers=2, itr=1, train_epochs=10, batch_size=32, patience=3, learning_rate=0.0001, des='test', loss='MSE', lradj='type1', pct_start=0.2, use_amp=False, use_gpu=True, gpu=0, use_multi_gpu=False, devices='0,1,2,3', exp_name='MTSF', channel_independence=False, inverse=False, class_strategy='projection', target_root_path='./data/electricity/', target_data_path='electricity.csv', efficient_training=False, use_norm=True, partial_start_index=0, requires_grad=True, wv='db1', m=3, kernel_size=None, alpha=1.0, l1_weight=5e-05, d_model=32, d_ff=32, e_layers=1, compile=False, output_attention=False, fix_seed=2025)
+Use GPU: cuda:0
+Total trainable parameters: 12856
+Memory usage for trainable parameters: 0.05 MB
+Static memory footprint (allocated): 0.06 MB
+Static memory footprint (reserved): 2.00 MB
+>>>>>>>start training : ETTh1_SWT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True>>>>>>>>>>>>>>>>>>>>>>>>>>
+train 8449
+val 2785
+test 2785
+	iters: 30, epoch: 1 | loss: 0.6559232
+	speed: 0.0838s/iter; left time: 218.9221s
+	iters: 60, epoch: 1 | loss: 0.6726899
+	speed: 0.0677s/iter; left time: 174.6994s
+	iters: 90, epoch: 1 | loss: 0.5831890
+	speed: 0.0650s/iter; left time: 165.8563s
+	iters: 120, epoch: 1 | loss: 0.5076125
+	speed: 0.0658s/iter; left time: 165.8194s
+	iters: 150, epoch: 1 | loss: 0.5493618
+	speed: 0.0654s/iter; left time: 162.9140s
+	iters: 180, epoch: 1 | loss: 0.5446462
+	speed: 0.0653s/iter; left time: 160.6858s
+	iters: 210, epoch: 1 | loss: 0.4428372
+	speed: 0.0656s/iter; lef
+
+--- Cell 20 [MARKDOWN] ---
+## 7. Train SimpleTM_FFT (FFT-Only Tokenization)
+
+--- Cell 21 [CODE OUTPUT] ---
+Source preview: !python -u run.py \
+  --is_training 1 \
+  --model SimpleTM_FFT \
+  --model_id {DATA_TYPE}_FFT \
+  --...
+Args in experiment:
+Namespace(is_training=1, model_id='ETTh1_FFT', model='SimpleTM_FFT', data='ETTh1', root_path='/kaggle/working/SimpleTM/dataset/SimpleTM_datasets/ETT-small', data_path='ETTh1.csv', features='M', target='OT', freq='h', checkpoints='./checkpoints/', seq_len=96, label_len=0, pred_len=96, enc_in=7, dec_in=7, c_out=7, n_heads=8, d_layers=1, moving_avg=25, factor=1, distil=True, dropout=0.1, geomattn_dropout=0.5, embed='timeF', activation='gelu', do_predict=False, num_workers=2, itr=1, train_epochs=10, batch_size=32, patience=3, learning_rate=0.0001, des='test', loss='MSE', lradj='type1', pct_start=0.2, use_amp=False, use_gpu=True, gpu=0, use_multi_gpu=False, devices='0,1,2,3', exp_name='MTSF', channel_independence=False, inverse=False, class_strategy='projection', target_root_path='./data/electricity/', target_data_path='electricity.csv', efficient_training=False, use_norm=True, partial_start_index=0, requires_grad=True, wv='db1', m=3, kernel_size=None, alpha=1.0, l1_weight=5e-05, d_model=32, d_ff=32, e_layers=1, compile=False, output_attention=False, fix_seed=2025)
+Use GPU: cuda:0
+Total trainable parameters: 12808
+Memory usage for trainable parameters: 0.05 MB
+Static memory footprint (allocated): 0.05 MB
+Static memory footprint (reserved): 2.00 MB
+>>>>>>>start training : ETTh1_FFT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True>>>>>>>>>>>>>>>>>>>>>>>>>>
+train 8449
+val 2785
+test 2785
+	iters: 30, epoch: 1 | loss: 0.6617748
+	speed: 0.0730s/iter; left time: 190.7019s
+	iters: 60, epoch: 1 | loss: 0.6791621
+	speed: 0.0462s/iter; left time: 119.2017s
+	iters: 90, epoch: 1 | loss: 0.5894639
+	speed: 0.0470s/iter; left time: 119.9056s
+	iters: 120, epoch: 1 | loss: 0.5153849
+	speed: 0.0467s/iter; left time: 117.6934s
+	iters: 150, epoch: 1 | loss: 0.5533341
+	speed: 0.0461s/iter; left time: 114.7616s
+	iters: 180, epoch: 1 | loss: 0.5452569
+	speed: 0.0475s/iter; left time: 116.8294s
+	iters: 210, epoch: 1 | loss: 0.4426490
+	speed: 0.0469s/iter; lef
+
+--- Cell 22 [MARKDOWN] ---
+## 8. Compare Results
+
+Parse the results file and display a comparison table.
+
+--- Cell 23 [CODE OUTPUT] ---
+Source preview: import re
+import pandas as pd
+
+results_file = "result_long_term_forecast.txt"
+
+if os.path.exists(res...
+
+======================================================================
+                    RESULTS COMPARISON
+======================================================================
+              Model                                                         Setting      MSE      MAE
+SimpleTM (Original) ETTh1_original_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.00... 0.451259 0.446162
+       SimpleTM_SWT ETTh1_SWT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_ty... 0.451259 0.446162
+       SimpleTM_FFT ETTh1_FFT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_ty... 0.457091 0.449469
+======================================================================
+
+--- Average Metrics by Model ---
+                          MSE       MAE
+Model                                  
+SimpleTM (Original)  0.451259  0.446162
+SimpleTM_FFT         0.457091  0.449469
+SimpleTM_SWT         0.451259  0.446162
+
+
+--- Cell 24 [MARKDOWN] ---
+## 9. Visualize Predictions
+
+Display saved prediction vs ground-truth plots.
+
+--- Cell 25 [CODE OUTPUT] ---
+Source preview: import glob
+from IPython.display import Image, display
+import matplotlib.pyplot as plt
+from matplotl...
+Found 3 checkpoint directories:
+  ETTh1_FFT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True: 5 visualization PDFs
+  ETTh1_SWT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True: 5 visualization PDFs
+  ETTh1_original_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True: 5 visualization PDFs
+
+--- ETTh1_FFT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True ---
+First visualization: ./checkpoints/ETTh1_FFT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True/0.pdf
+
+--- ETTh1_SWT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True ---
+First visualization: ./checkpoints/ETTh1_SWT_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True/0.pdf
+
+--- ETTh1_original_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True ---
+First visualization: ./checkpoints/ETTh1_original_ETTh1_96_96_32_32_1_db1_None_3_1.0_5e-05_0.0001_type1_32_2025_True/0.pdf
+
