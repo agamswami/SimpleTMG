@@ -95,6 +95,8 @@ if __name__ == '__main__':
     parser.add_argument('--e_layers', type=int, default=1, help='Number of SimpleTM layers')
     parser.add_argument('--compile', type=bool, default=False, help='Set to True to enable compilation, which can accelerate speed but may slightly impact performance')
     parser.add_argument('--output_attention', action='store_true', help='Set to False to output attn, which can be used to compute training loss')
+    parser.add_argument('--attention_mode', type=str, default='original',
+                        help='attention variant, options: [original, dual]. dual adds a parallel temporal attention branch.')
 
     parser.add_argument('--fix_seed', type=int, default=2025, help='gpu')
     

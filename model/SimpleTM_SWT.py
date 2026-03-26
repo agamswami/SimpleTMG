@@ -19,6 +19,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from layers.Transformer_Encoder import Encoder, EncoderLayer
 from layers.SWTAttention_Family import GeomAttentionLayer, GeomAttention
+from layers.ParallelAttention_Family import ParallelSWTGeomAttentionLayer
 from layers.Embed import DataEmbedding_inverted
 
 
@@ -61,6 +62,11 @@ class Model(nn.Module):
         self.geomattn_dropout = configs.geomattn_dropout
         self.alpha = configs.alpha
         self.kernel_size = configs.kernel_size
+        self.attention_mode = getattr(configs, 'attention_mode', 'original')
+
+        attention_layer_cls = GeomAttentionLayer
+        if self.attention_mode == 'dual':
+            attention_layer_cls = ParallelSWTGeomAttentionLayer
 
         # Step 1: Inverted Embedding — project temporal dim to d_model
         enc_embedding = DataEmbedding_inverted(configs.seq_len, configs.d_model, 
@@ -71,7 +77,7 @@ class Model(nn.Module):
         encoder = Encoder(
             [  
                 EncoderLayer(
-                    GeomAttentionLayer(
+                    attention_layer_cls(
                         GeomAttention(
                             False, configs.factor, attention_dropout=configs.dropout, 
                             output_attention=configs.output_attention, alpha=self.alpha
