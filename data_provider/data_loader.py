@@ -9,6 +9,50 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
+
+def _resolve_datetime_column(df_raw):
+    for name in df_raw.columns:
+        if name.lower() in {'date', 'datetime', 'timestamp', 'time'}:
+            return name
+    raise ValueError(
+        "No datetime column found. Expected one of: date, datetime, timestamp, time."
+    )
+
+
+def _resolve_target_column(df_raw, target, features):
+    if target in df_raw.columns:
+        return target
+
+    lower_to_actual = {col.lower(): col for col in df_raw.columns}
+    if target.lower() in lower_to_actual:
+        return lower_to_actual[target.lower()]
+
+    if features == 'M':
+        return None
+
+    raise ValueError(
+        f"Target column '{target}' not found in dataset columns: {list(df_raw.columns)}"
+    )
+
+
+def _prepare_custom_dataframe(df_raw, target, features):
+    date_col = _resolve_datetime_column(df_raw)
+    target_col = _resolve_target_column(df_raw, target, features)
+
+    feature_cols = [col for col in df_raw.columns if col != date_col]
+    if target_col is not None and target_col in feature_cols:
+        feature_cols.remove(target_col)
+
+    ordered_cols = [date_col] + feature_cols
+    rename_map = {date_col: 'date'}
+
+    if target_col is not None:
+        ordered_cols.append(target_col)
+        rename_map[target_col] = target
+
+    df_prepared = df_raw[ordered_cols].rename(columns=rename_map)
+    return df_prepared
+
 class Dataset_ETT_hour(Dataset):
     def __init__(self, root_path, flag='train', size=None,
                  features='S', data_path='ETTh1.csv',
@@ -211,10 +255,7 @@ class Dataset_Custom(Dataset):
         self.scaler = StandardScaler()
         df_raw = pd.read_csv(os.path.join(self.root_path,
                                           self.data_path))
-        cols = list(df_raw.columns)
-        cols.remove(self.target)
-        cols.remove('date')
-        df_raw = df_raw[['date'] + cols + [self.target]]
+        df_raw = _prepare_custom_dataframe(df_raw, self.target, self.features)
         num_train = int(len(df_raw) * 0.7)
         num_test = int(len(df_raw) * 0.2)
         num_vali = len(df_raw) - num_train - num_test
@@ -445,14 +486,13 @@ class Dataset_Pred(Dataset):
         self.scaler = StandardScaler()
         df_raw = pd.read_csv(os.path.join(self.root_path,
                                           self.data_path))
+        df_raw = _prepare_custom_dataframe(df_raw, self.target, self.features)
         if self.cols:
-            cols = self.cols.copy()
-            cols.remove(self.target)
-        else:
-            cols = list(df_raw.columns)
-            cols.remove(self.target)
-            cols.remove('date')
-        df_raw = df_raw[['date'] + cols + [self.target]]
+            keep_cols = ['date']
+            keep_cols.extend([col for col in self.cols if col in df_raw.columns and col != 'date'])
+            if self.target in df_raw.columns and self.target not in keep_cols:
+                keep_cols.append(self.target)
+            df_raw = df_raw[keep_cols]
         border1 = len(df_raw) - self.seq_len
         border2 = len(df_raw)
 

@@ -3,7 +3,7 @@ from torch.optim import lr_scheduler
 from data_provider.data_factory import data_provider
 from experiments.exp_basic import Exp_Basic
 from utils.tools import EarlyStopping, adjust_learning_rate, visual
-from utils.metrics import metric
+from utils.metrics import metric, metric_extended
 import torch
 import torch.nn as nn
 from torch import optim
@@ -300,15 +300,22 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
-        mae, mse, rmse, mape, mspe = metric(preds, trues)
-        print('mse:{}, mae:{}'.format(mse, mae))
-        print('rmse:{}, mape:{}, mspe:{}'.format(rmse, mape, mspe))
+        metrics = metric_extended(preds, trues)
+        print('mse:{}, mae:{}'.format(metrics['mse'], metrics['mae']))
+        print('rmse:{}, mape:{}, mspe:{}'.format(metrics['rmse'], metrics['mape'], metrics['mspe']))
+        print(
+            'rse:{}, corr:{}, smape:{}, wape:{}, r2:{}'.format(
+                metrics['rse'],
+                metrics['corr'],
+                metrics['smape'],
+                metrics['wape'],
+                metrics['r2'],
+            )
+        )
         f = open("result_long_term_forecast.txt", 'a')
         f.write(setting + "  \n")
-        if self.args.data == 'PEMS':
-            f.write('mae:{}, mape:{}, rmse:{}'.format(mae, mape, rmse))
-        else:
-            f.write('mse:{}, mae:{}'.format(mse, mae))
+        metric_parts = [f'{name}:{value}' for name, value in metrics.items()]
+        f.write(', '.join(metric_parts))
         f.write('\n')
         f.write('\n')
         f.close()
