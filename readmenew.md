@@ -1,10 +1,10 @@
-# SimpleTMG: Architecture Guide with Dual Attention
+# SimpleTMG: Architecture Guide with All Variants
 
 This document describes the current architecture of the project as it exists in this repository, including:
 
 - the original SimpleTM baseline
-- the SWT and FFT tokenization variants
-- the new switchable dual-attention extension
+- the SWT, FFT, Conv, and Hybrid tokenization variants
+- the switchable dual-attention extension
 - how the data, model, training loop, and experiment notebooks fit together
 
 This file is intended to be a technical project note for implementation, experiments, and report writing.
@@ -20,6 +20,8 @@ The project now has **two independent axes of variation**:
 1. **Tokenization choice**
    - `SimpleTM` / `SimpleTM_SWT`: SWT tokenization
    - `SimpleTM_FFT`: FFT tokenization
+   - `SimpleTM_Conv`: multi-scale convolutional tokenization
+   - `SimpleTM_Hybrid`: gated fusion of SWT + FFT + Conv tokenization
 
 2. **Attention choice**
    - `attention_mode=original`: original SimpleTM geometric attention only
@@ -109,7 +111,7 @@ This is one of the key ideas of SimpleTM:
 
 ## 4. Tokenization Branches
 
-After inverted embedding, the project supports two tokenization strategies.
+After inverted embedding, the project supports four tokenization strategies.
 
 ### 4.1 SWT Tokenization
 
@@ -167,6 +169,74 @@ This branch emphasizes:
 - frequency-band separation
 - comparison with wavelet-style tokenization under the same downstream architecture
 
+### 4.3 Conv Tokenization
+
+Used by:
+
+- `SimpleTM_Conv`
+
+Implemented in:
+
+- `layers/ConvAttention_Family.py`
+
+Core idea:
+
+- apply multiple depthwise 1D convolutions with different odd kernel sizes
+- each kernel acts as a local pattern extractor at a different receptive field
+- the outputs are stacked as `m + 1` sub-representations, matching the shape contract used by SWT and FFT
+
+Shape:
+
+```text
+(B, N, d_model) -> (B, N, m+1, d_model)
+```
+
+This branch emphasizes:
+
+- learnable local motif extraction
+- short-range changes and spikes
+- task-adaptive filters instead of fixed spectral or wavelet bases
+
+### 4.4 Hybrid Gated Tokenization
+
+Used by:
+
+- `SimpleTM_Hybrid`
+
+Implemented in:
+
+- `layers/HybridAttention_Family.py`
+
+Core idea:
+
+- run the three tokenizers in parallel:
+  - SWT branch
+  - FFT branch
+  - Conv branch
+- compute a learned fusion gate over the three token streams
+- pass the fused tokenization output into the same geometric attention encoder used by the other models
+
+Conceptually:
+
+```text
+T_swt    = SWT(x)
+T_fft    = FFT(x)
+T_conv   = Conv(x)
+T_fused  = softmax_gate(T_swt, T_fft, T_conv)
+```
+
+Shape:
+
+```text
+(B, N, d_model) -> (B, N, m+1, d_model) -> fused -> (B, N, m+1, d_model)
+```
+
+This branch emphasizes:
+
+- adaptive tokenization instead of a fixed single tokenizer
+- per-sample, per-variate, and per-scale branch weighting
+- preserving the original SimpleTM encoder path while making tokenization adaptive
+
 ---
 
 ## 5. Original SimpleTM Attention
@@ -180,6 +250,10 @@ Implemented in:
   - `GeomAttentionLayer`
 - `layers/FFTAttention_Family.py`
   - `FFTGeomAttentionLayer`
+- `layers/ConvAttention_Family.py`
+  - `ConvGeomAttentionLayer`
+- `layers/HybridAttention_Family.py`
+  - `HybridGeomAttentionLayer`
 
 ### 5.1 What it does
 
@@ -415,11 +489,22 @@ attention output
 - `layers/FFTAttention_Family.py`
   - original FFT tokenization and geometric attention
 
+- `layers/ConvAttention_Family.py`
+  - multi-scale convolutional tokenization
+  - Conv geometric-attention wrapper
+
+- `layers/HybridAttention_Family.py`
+  - three-branch tokenization
+  - softmax fusion gate for SWT + FFT + Conv
+  - hybrid geometric-attention wrapper
+
 - `layers/ParallelAttention_Family.py`
   - new temporal branch
-  - branch fusion gate
+  - temporal/channel fusion gate
   - wrappers for SWT + dual attention
   - wrappers for FFT + dual attention
+  - wrappers for Conv + dual attention
+  - wrappers for Hybrid + dual attention
 
 ### 10.2 Model Files
 
@@ -435,13 +520,23 @@ attention output
   - FFT tokenization model
   - now supports `attention_mode`
 
+- `model/SimpleTM_Conv.py`
+  - convolutional tokenization model
+  - supports `attention_mode`
+
+- `model/SimpleTM_Hybrid.py`
+  - gated SWT + FFT + Conv fusion model
+  - supports `attention_mode`
+
 ### 10.3 Training Entry Point
 
 - `run.py`
-  - adds the CLI flag:
+  - supports model switching with:
 
 ```text
+--model [SimpleTM | SimpleTM_SWT | SimpleTM_FFT | SimpleTM_Conv | SimpleTM_Hybrid]
 --attention_mode [original | dual]
+--conv_kernel_sizes "3,5,7,11"
 ```
 
 ---
@@ -456,6 +551,10 @@ The project now supports these meaningful combinations:
 | SWT | dual | `--model SimpleTM_SWT --attention_mode dual` |
 | FFT | original | `--model SimpleTM_FFT --attention_mode original` |
 | FFT | dual | `--model SimpleTM_FFT --attention_mode dual` |
+| Conv | original | `--model SimpleTM_Conv --attention_mode original` |
+| Conv | dual | `--model SimpleTM_Conv --attention_mode dual` |
+| Hybrid | original | `--model SimpleTM_Hybrid --attention_mode original` |
+| Hybrid | dual | `--model SimpleTM_Hybrid --attention_mode dual` |
 
 Because `SimpleTM` and `SimpleTM_SWT` are functionally the same tokenization family, `SimpleTM` can also be used with:
 
@@ -524,6 +623,23 @@ This extends the Kaggle workflow to run:
 
 across all configured datasets.
 
+### All-variant Kaggle notebook
+
+- `simpletmg-alldataset-conv-hybrid.ipynb`
+
+This is the current all-in-one Kaggle notebook for:
+
+- `SWT_original`
+- `SWT_dual`
+- `FFT_original`
+- `FFT_dual`
+- `Conv_original`
+- `Conv_dual`
+- `Hybrid_original`
+- `Hybrid_dual`
+
+across all configured datasets in one run grid.
+
 ---
 
 ## 14. Why the Dual Attention Matters
@@ -546,7 +662,7 @@ In short:
 - temporal branch = time-axis latent reasoning
 - dual model = fused reasoning from both views
 
-This is the main architectural contribution added in the current version of the project.
+This remains the main attention-side architectural contribution of the project.
 
 ---
 
@@ -585,7 +701,7 @@ So the correct adaptation was:
 
 If this project is described in a report or presentation, a clean wording is:
 
-> We extend SimpleTM with a switchable dual-attention encoder that preserves the original geometric channel/scale attention branch and adds a DAG-inspired temporal self-attention branch in parallel. The two branches are fused through a learned gating mechanism, enabling a controlled comparison between original and dual-attention settings under both SWT and FFT tokenization.
+> We extend SimpleTM into a modular SimpleTM++ framework with four tokenization options: SWT, FFT, Conv, and a gated Hybrid branch that fuses SWT, FFT, and Conv tokenizations before the shared geometric-attention encoder. In parallel, we add a switchable DAG-inspired temporal self-attention branch, enabling controlled comparisons across tokenization and attention choices under a fixed forecasting backbone.
 
 That description is technically accurate for the current code.
 
@@ -597,8 +713,11 @@ What is already implemented:
 
 - SWT tokenization
 - FFT tokenization
+- Conv tokenization
+- Hybrid gated tokenization
 - original geometric attention
 - dual attention with a temporal branch
+- CLI switch for model choice
 - CLI switch for attention mode
 - Kaggle notebook for all tokenization x attention combinations
 
@@ -607,7 +726,7 @@ What is still open for future work:
 - token-wise or feature-wise fusion gates
 - additional fusion baselines
 - larger experimental study of `original` vs `dual`
-- cleaner documentation merge into the main `README.md`
+- report-ready architecture diagrams and final manuscript integration
 
 ---
 
@@ -637,6 +756,30 @@ python run.py --is_training 1 --model SimpleTM_FFT --attention_mode original ...
 python run.py --is_training 1 --model SimpleTM_FFT --attention_mode dual ...
 ```
 
+### Conv + original attention
+
+```bash
+python run.py --is_training 1 --model SimpleTM_Conv --attention_mode original ...
+```
+
+### Conv + dual attention
+
+```bash
+python run.py --is_training 1 --model SimpleTM_Conv --attention_mode dual ...
+```
+
+### Hybrid + original attention
+
+```bash
+python run.py --is_training 1 --model SimpleTM_Hybrid --attention_mode original ...
+```
+
+### Hybrid + dual attention
+
+```bash
+python run.py --is_training 1 --model SimpleTM_Hybrid --attention_mode dual ...
+```
+
 ---
 
 ## 19. Final Takeaway
@@ -644,11 +787,15 @@ python run.py --is_training 1 --model SimpleTM_FFT --attention_mode dual ...
 The repository now supports a clean experimental matrix:
 
 ```text
-tokenization: SWT or FFT
+tokenization: SWT, FFT, Conv, or Hybrid
 attention:    original or dual
 ```
 
-The most important implementation change is the addition of a **parallel temporal attention branch** that can be turned on without removing the original SimpleTM mechanism.
+The most important implementation changes are:
+
+- a **parallel temporal attention branch** that can be turned on without removing the original SimpleTM mechanism
+- a **convolutional tokenizer** for short-range local patterns
+- a **hybrid gated tokenizer** that adaptively fuses SWT, FFT, and Conv before the shared encoder
 
 That makes the project suitable for:
 

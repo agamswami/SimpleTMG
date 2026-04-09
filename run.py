@@ -6,6 +6,8 @@ import numpy as np
 from model.SimpleTM import Model
 from model.SimpleTM_SWT import Model as Model_SWT
 from model.SimpleTM_FFT import Model as Model_FFT
+from model.SimpleTM_Conv import Model as Model_Conv
+from model.SimpleTM_Hybrid import Model as Model_Hybrid
 
 if __name__ == '__main__':
 
@@ -16,7 +18,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_id', type=str, required=True, default='test', help='model id')
 
     parser.add_argument('--model', type=str, required=True, default='SimpleTM',
-                        help='model name, options: [SimpleTM, SimpleTM_SWT, SimpleTM_FFT]')
+                        help='model name, options: [SimpleTM, SimpleTM_SWT, SimpleTM_FFT, SimpleTM_Conv, SimpleTM_Hybrid]')
 
     # data loader
     parser.add_argument('--data', type=str, required=True, default='custom', help='dataset type')
@@ -88,6 +90,8 @@ if __name__ == '__main__':
     parser.add_argument('--wv', type=str, default='db1', help='Wavelet filter type. Supports all wavelets available in PyTorch Wavelets')
     parser.add_argument('--m', type=int, default=3, help='Number of levels for the stationary wavelet transform')
     parser.add_argument('--kernel_size', default=None, help='Specify the length of randomly initialized wavelets (if not None)')
+    parser.add_argument('--conv_kernel_sizes', type=str, default=None,
+                        help='Comma-separated kernel sizes for the Conv tokenizer, e.g. "3,5,7,11". Defaults to a multi-scale odd-sized schedule.')
     parser.add_argument('--alpha', type=float, default=1, help='Weight of the inner product score in geometric attention')
     parser.add_argument('--l1_weight', type=float, default=5e-5, help='Weight of L1 loss')
     parser.add_argument('--d_model', type=int, default=32, help='Dimensionality of pseudo tokens')
@@ -122,25 +126,29 @@ if __name__ == '__main__':
     if args.is_training:
         for ii in range(args.itr):
             # setting record of experiments
-            setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
-                args.model_id, 
+            setting = '_'.join(map(str, [
+                args.model_id,
+                args.model,
+                args.attention_mode,
                 args.data,
                 args.seq_len,
                 args.pred_len,
                 args.d_model,
                 args.d_ff,
-                args.e_layers,   
+                args.e_layers,
                 args.wv,
                 args.kernel_size,
+                args.conv_kernel_sizes,
                 args.m,
                 args.alpha,
-                args.l1_weight, 
+                args.l1_weight,
                 args.learning_rate,
                 args.lradj,
                 args.batch_size,
                 args.fix_seed,
                 args.use_norm,
-                ii)
+                ii,
+            ]))
 
             exp = Exp(args)  # set experiments
             print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
@@ -157,7 +165,9 @@ if __name__ == '__main__':
     else:
       
         ii = 0
-        setting = '{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}_{}'.format(
+        setting = '_'.join(map(str, [
+            args.model,
+            args.attention_mode,
             args.data,
             args.seq_len,
             args.pred_len,
@@ -166,15 +176,17 @@ if __name__ == '__main__':
             args.e_layers,
             args.wv,
             args.kernel_size,
+            args.conv_kernel_sizes,
             args.m,
             args.alpha,
-            args.l1_weight, 
+            args.l1_weight,
             args.learning_rate,
             args.lradj,
             args.batch_size,
             args.fix_seed,
             args.use_norm,
-            ii)
+            ii,
+        ]))
 
         exp = Exp(args)  # set experiments
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))

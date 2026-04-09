@@ -2,6 +2,8 @@ import os
 from model import SimpleTM
 from model import SimpleTM_SWT
 from model import SimpleTM_FFT
+from model import SimpleTM_Conv
+from model import SimpleTM_Hybrid
 import torch
 
 # Add this at the beginning of your training script
@@ -17,6 +19,8 @@ class Exp_Basic(object):
             'SimpleTM': SimpleTM,
             'SimpleTM_SWT': SimpleTM_SWT,
             'SimpleTM_FFT': SimpleTM_FFT,
+            'SimpleTM_Conv': SimpleTM_Conv,
+            'SimpleTM_Hybrid': SimpleTM_Hybrid,
         }
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)

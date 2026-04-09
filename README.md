@@ -1,435 +1,261 @@
-# SimpleTM — Simple Baseline for Multivariate Time Series Forecasting
+# SimpleTMG
 
-> **BTP Extension**: This repository extends the original [SimpleTM](https://github.com/vsingh-group/SimpleTM) with **SWT-Only** and **FFT-Only** tokenization variants for ablation study.
+SimpleTMG extends the original SimpleTM baseline into a modular forecasting framework with:
 
----
+- four tokenization branches: `SWT`, `FFT`, `Conv`, and `Hybrid`
+- two attention modes: `original` and `dual`
+- one shared training pipeline for controlled ablations across datasets
 
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Model Variants](#model-variants)
-- [Pipeline Flow](#pipeline-flow)
-- [Code Structure & Function Reference](#code-structure--function-reference)
-- [Setup & Installation](#setup--installation)
-- [Running Experiments](#running-experiments)
-- [Dataset](#dataset)
-
----
+The codebase keeps the original SimpleTM path intact while making tokenization and attention independently switchable.
 
 ## Overview
 
-SimpleTM is a lightweight yet effective baseline for **Multivariate Time Series Forecasting (MTSF)**. It combines:
+The project studies multivariate time-series forecasting under two independent design axes.
 
-1. **Channel-independent inverted embedding** — treats each variate as a token
-2. **Stationary Wavelet Transform (SWT)** — multi-scale signal decomposition for tokenization
-3. **Geometric Attention** — novel attention combining dot product and wedge product scores
+1. Tokenization
+- `SimpleTM` or `SimpleTM_SWT`: stationary wavelet tokenization
+- `SimpleTM_FFT`: FFT band tokenization
+- `SimpleTM_Conv`: multi-scale convolutional tokenization
+- `SimpleTM_Hybrid`: gated fusion of `SWT + FFT + Conv`
 
-This project extends SimpleTM with two ablation variants that change **only the tokenization strategy** while keeping the geometric attention mechanism intact:
+2. Attention
+- `attention_mode=original`: original SimpleTM geometric attention
+- `attention_mode=dual`: original branch plus a parallel temporal self-attention branch
 
-| Model | Tokenization | Attention | Description |
-|-------|-------------|-----------|-------------|
-| `SimpleTM` | SWT | Geometric (Wedge) | Original model |
-| `SimpleTM_SWT` | SWT | Geometric (Wedge) | SWT-only baseline (same as original, for clean comparison) |
-| `SimpleTM_FFT` | FFT | Geometric (Wedge) | FFT spectral band tokenization |
+That gives the following experimental matrix:
 
----
+| Tokenization | Original Attention | Dual Attention |
+| --- | --- | --- |
+| SWT | `SimpleTM_SWT` | `SimpleTM_SWT --attention_mode dual` |
+| FFT | `SimpleTM_FFT` | `SimpleTM_FFT --attention_mode dual` |
+| Conv | `SimpleTM_Conv` | `SimpleTM_Conv --attention_mode dual` |
+| Hybrid | `SimpleTM_Hybrid` | `SimpleTM_Hybrid --attention_mode dual` |
+
+`SimpleTM` is also available as the original SWT-based baseline.
 
 ## Architecture
 
-### Original SimpleTM Pipeline
+At a high level the forecasting path is still:
 
-```
-Input: (B, L, N) — Batch, Sequence Length, Number of Variates
-         │
-         ▼
-┌─────────────────────────────┐
-│  Instance Normalization     │  Subtract mean, divide by std (RevIN-style)
-│  (RevIN)                    │
-└────────────┬────────────────┘
-             │
-             ▼
-┌─────────────────────────────┐
-│  Inverted Embedding         │  (B, L, N) → (B, N, d_model)
-│  DataEmbedding_inverted     │  Transpose + Linear projection
-└────────────┬────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────────┐
-│  SimpleTM Encoder Layer (×e_layers)                 │
-│                                                     │
-│  ┌─────────────────────────────────────────────┐    │
-│  │  GeomAttentionLayer                         │    │
-│  │                                             │    │
-│  │  1. SWT Decomposition  (B,N,d) → (B,N,m+1,d)│   │
-│  │     └─ Multi-level wavelet transform        │    │
-│  │                                             │    │
-│  │  2. Q/K/V Linear Projections                │    │
-│  │     └─ + Dropout                            │    │
-│  │                                             │    │
-│  │  3. GeomAttention (Wedge Product Scoring)   │    │
-│  │     └─ scores = (1-α)·dot + α·wedge_norm   │    │
-│  │     └─ softmax → weighted values            │    │
-│  │                                             │    │
-│  │  4. Output Projection + SWT Reconstruction  │    │
-│  │     └─ (B,N,m+1,d) → (B,N,d)              │    │
-│  └─────────────────────────────────────────────┘    │
-│                                                     │
-│  5. Residual Connection + LayerNorm                 │
-│  6. Feed-Forward Network (Conv1d → Conv1d)          │
-│  7. Residual Connection + LayerNorm                 │
-└────────────┬────────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────┐
-│  Output Projection          │  (B, N, d_model) → (B, H, N)
-│  Linear(d_model, pred_len)  │  Permute to forecast shape
-└────────────┬────────────────┘
-             │
-             ▼
-┌─────────────────────────────┐
-│  De-normalization           │  Reverse the RevIN normalization
-└────────────┬────────────────┘
-             │
-             ▼
-Output: (B, H, N) — Batch, Horizon, Number of Variates
+```text
+Input series (B, L, N)
+  -> reversible normalization
+  -> inverted embedding
+  -> encoder layer(s)
+  -> horizon projection
+  -> de-normalization
+  -> forecast (B, H, N)
 ```
 
-### FFT-Only Variant Difference
+### Inverted Embedding
 
-In `SimpleTM_FFT`, the SWT decomposition/reconstruction is replaced:
+The embedding layer in [layers/Embed.py](layers/Embed.py) maps:
 
-```
-SWT Model:  SWT Decomposition → [Attention] → SWT Reconstruction
-FFT Model:  FFT Band Decomposition → [Attention] → FFT Band Summation
-
-FFT Decomposition:
-    Input signal → torch.fft.rfft → Split spectrum into (m+1) bands
-    → torch.fft.irfft per band → (m+1) time-domain band signals
-
-    Band 0: Lowest frequencies  (≈ SWT approximation coefficients)
-    Band 1: Low-mid frequencies (≈ SWT level-1 detail coefficients)
-    ...
-    Band m: Highest frequencies (≈ SWT level-m detail coefficients)
-
-FFT Reconstruction:
-    Sum all weighted frequency band signals → Reconstructed output
+```text
+(B, L, N) -> (B, N, d_model)
 ```
 
----
+Each variate becomes a token, and its temporal history is projected into a latent vector.
 
-## Model Variants
+### Tokenization Branches
 
-### 1. SimpleTM (Original)
+All tokenizer variants preserve the same downstream shape contract:
 
-**Files**: `model/SimpleTM.py`, `layers/SWTAttention_Family.py`
-
-Uses Stationary Wavelet Transform for multi-scale decomposition and geometric attention with wedge product scoring.
-
-### 2. SimpleTM_SWT (SWT-Only Baseline)
-
-**Files**: `model/SimpleTM_SWT.py`, `layers/SWTAttention_Family.py`
-
-Functionally identical to the original SimpleTM. Maintained as a separate model file for clean ablation study comparison with consistent naming.
-
-### 3. SimpleTM_FFT (FFT-Only Tokenization)
-
-**Files**: `model/SimpleTM_FFT.py`, `layers/FFTAttention_Family.py`
-
-Replaces SWT tokenization with FFT spectral band decomposition. The frequency spectrum is divided into `m+1` bands with learnable weights. Geometric attention (wedge product) is unchanged.
-
----
-
-## Pipeline Flow
-
-```
-Raw CSV Data
-    │
-    ▼
-┌──────────────────┐    data_provider/data_loader.py
-│  Dataset Loading  │    (Dataset_Custom, Dataset_ETT_hour, etc.)
-│  + Normalization  │    StandardScaler + train/val/test split
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐    data_provider/data_factory.py
-│  DataLoader       │    Batching, shuffling, num_workers
-│  (PyTorch)        │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐    experiments/exp_long_term_forecasting.py
-│  Training Loop    │    AdamW optimizer, early stopping
-│  Exp_Long_Term    │    MSE/L1 loss + L1 attention regularization
-│  _Forecast        │    Learning rate scheduling
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐    model/SimpleTM*.py + layers/*
-│  Model Forward    │    Normalization → Embedding → Encoder → Projection
-│  Pass             │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐    utils/metrics.py
-│  Evaluation       │    MSE, MAE, RMSE, MAPE, MSPE
-│  Metrics          │
-└──────────────────┘
+```text
+(B, N, d_model) -> (B, N, m + 1, d_model)
 ```
 
----
+This keeps the geometric encoder structure comparable across branches.
 
-## Code Structure & Function Reference
+#### SWT
 
-```
-simpleTMG/
-├── run.py                          # Entry point — argument parsing, training/testing loop
-├── model/
-│   ├── SimpleTM.py                 # Original model
-│   ├── SimpleTM_SWT.py            # SWT-only baseline (identical to original)
-│   └── SimpleTM_FFT.py            # FFT tokenization variant
-├── layers/
-│   ├── Embed.py                    # Inverted embedding layer
-│   ├── SWTAttention_Family.py     # SWT tokenization + Geometric attention
-│   ├── FFTAttention_Family.py     # FFT tokenization + Geometric attention
-│   ├── Transformer_Encoder.py    # Encoder + EncoderLayer
-│   └── StandardNorm.py            # RevIN normalization
-├── experiments/
-│   ├── exp_basic.py               # Base experiment class (model registry)
-│   └── exp_long_term_forecasting.py  # Training/validation/testing logic
-├── data_provider/
-│   ├── data_factory.py            # Dataset and DataLoader factory
-│   └── data_loader.py            # Dataset classes for all benchmarks
-├── utils/
-│   ├── metrics.py                 # MSE, MAE, RMSE, MAPE, MSPE
-│   ├── tools.py                   # EarlyStopping, LR scheduling, visualization
-│   ├── masking.py                 # Masking utilities
-│   └── timefeatures.py           # Time feature engineering
-├── scripts/
-│   └── multivariate_forecasting/  # Shell scripts for each dataset
-└── SimpleTM_Kaggle.ipynb          # Kaggle notebook for running experiments
-```
+Implemented in [layers/SWTAttention_Family.py](layers/SWTAttention_Family.py).
 
-### Detailed Function Reference
+- stationary wavelet transform over the embedded representation
+- multi-scale decomposition with `m + 1` coefficients
+- strong fit for non-stationary, locally varying structure
 
-#### `run.py`
-- **Main entry point**: Parses all arguments, creates experiment, runs train/test loop
-- Key arguments: `--model` (SimpleTM/SimpleTM_SWT/SimpleTM_FFT), `--wv` (wavelet type), `--m` (decomposition levels), `--alpha` (dot vs wedge weight)
+#### FFT
 
-#### `layers/Embed.py`
-- **`DataEmbedding_inverted`**: Inverted channel embedding
-  - `__init__(c_in, d_model, ...)`: Creates `nn.Linear(seq_len, d_model)` projection
-  - `forward(x, x_mark)`: Transposes `(B,L,N)` → `(B,N,L)`, applies linear projection → `(B,N,d_model)`
+Implemented in [layers/FFTAttention_Family.py](layers/FFTAttention_Family.py).
 
-#### `layers/SWTAttention_Family.py`
-- **`WaveletEmbedding`**: SWT decomposition and reconstruction
-  - `__init__(d_channel, swt, requires_grad, wv, m, kernel_size)`: Initializes wavelet filters (h0, h1) from PyWavelets
-  - `forward(x)`: Calls `swt_decomposition` or `swt_reconstruction`
-  - `swt_decomposition(x, h0, h1, depth, kernel_size)`: Multi-level SWT using circular padding + grouped 1D convolution with increasing dilation. Returns `(B,N,m+1,L)` — stacked [approx, detail_m, ..., detail_1]
-  - `swt_reconstruction(coeffs, g0, g1, m, kernel_size)`: Inverse SWT using reconstruction filters
-  
-- **`GeomAttentionLayer`**: Wraps tokenization + attention
-  - `__init__(attention, d_model, ...)`: Creates SWT embeddings, Q/K/V projections, output projection with inverse SWT
-  - `forward(queries, keys, values, ...)`: SWT decompose → project Q/K/V → geometric attention → output project + SWT reconstruct
-  
-- **`GeomAttention`**: Novel geometric attention mechanism
-  - `__init__(mask_flag, factor, scale, attention_dropout, output_attention, alpha)`: Sets up attention parameters
-  - `forward(queries, keys, values, ...)`: Computes attention scores as `(1-α)·dot_product + α·wedge_norm`, where wedge_norm = `√(|q|²|k|² - (q·k)²)` (exterior product magnitude). Returns weighted values and mean absolute attention scores for L1 regularization.
+- splits the latent representation into `m + 1` frequency bands
+- reconstructs bands in the time domain for attention processing
+- useful when periodic or compact spectral structure dominates
 
-#### `layers/FFTAttention_Family.py` *(New)*
-- **`FFTEmbedding`**: FFT-based tokenization
-  - `__init__(d_channel, decompose, m)`: Initialize with learnable band weights
-  - `fft_decomposition(x)`: `rfft` → split into `m+1` frequency bands → `irfft` per band → stack as `(B,N,m+1,L)`
-  - `fft_reconstruction(coeffs)`: Weighted sum of all frequency bands → `(B,N,L)`
-  
-- **`FFTGeomAttentionLayer`**: FFT tokenization + Geometric attention
-  - Same interface as `GeomAttentionLayer` but uses `FFTEmbedding` instead of `WaveletEmbedding`
+#### Conv
 
-#### `layers/Transformer_Encoder.py`
-- **`EncoderLayer`**: Single transformer encoder layer
-  - `forward(x, ...)`: Attention → residual + LayerNorm → FFN (Conv1d) → residual + LayerNorm
-  
-- **`Encoder`**: Stack of encoder layers
-  - `forward(x, ...)`: Sequential pass through all layers, applies final LayerNorm
+Implemented in [layers/ConvAttention_Family.py](layers/ConvAttention_Family.py).
 
-#### `layers/StandardNorm.py`
-- **`Normalize`**: Reversible instance normalization (RevIN)
-  - `forward(x, mode='norm'|'denorm')`: Normalize or de-normalize
+- applies multi-scale depthwise 1D convolutions with configurable odd kernel sizes
+- learns local motifs and short-range patterns directly from data
+- useful for sharp transitions, local bursts, and short receptive-field structure
 
-#### `model/SimpleTM.py` (and `SimpleTM_SWT.py`, `SimpleTM_FFT.py`)
-- **`Model`**: Main model class
-  - `__init__(configs)`: Builds embedding → encoder → projector
-  - `forecast(x_enc, ...)`: Full forward pass: normalize → embed → encode → project → denormalize
-  - `forward(x_enc, ...)`: Calls `forecast()`
+#### Hybrid
 
-#### `experiments/exp_basic.py`
-- **`Exp_Basic`**: Base experiment class
-  - `__init__(args)`: Device setup, model building, parameter counting
-  - `model_dict`: Registry mapping model names to modules
+Implemented in [layers/HybridAttention_Family.py](layers/HybridAttention_Family.py).
 
-#### `experiments/exp_long_term_forecasting.py`
-- **`Exp_Long_Term_Forecast`**: Full experiment lifecycle
-  - `train(setting)`: Training loop — data loading, AdamW optimizer, MSE loss + L1 attention regularization, early stopping, LR scheduling
-  - `vali(vali_data, vali_loader, criterion)`: Validation loop
-  - `test(setting)`: Testing loop — computes MSE, MAE, RMSE, MAPE, MSPE, saves visualizations
-  - `predict(setting)`: Inference on unseen data
+- runs `SWT`, `FFT`, and `Conv` tokenizers in parallel
+- fuses them with a learned softmax gate
+- keeps the encoder fixed while making the tokenizer adaptive
 
-#### `data_provider/data_factory.py`
-- **`data_provider(args, flag)`**: Factory function returning dataset + dataloader for given flag (train/val/test/pred)
+Conceptually:
 
-#### `data_provider/data_loader.py`
-- **`Dataset_Custom`**: General CSV dataset with 70/10/20 train/val/test split
-- **`Dataset_ETT_hour`** / **`Dataset_ETT_minute`**: ETT benchmark datasets
-- **`Dataset_PEMS`**: Traffic flow dataset (`.npz` format)
-- **`Dataset_Solar`**: Solar energy dataset
-- **`Dataset_Pred`**: Prediction-only dataset for inference
-
-#### `utils/metrics.py`
-- **`metric(pred, true)`**: Returns (MAE, MSE, RMSE, MAPE, MSPE)
-- Individual functions: `RSE`, `CORR`, `MAE`, `MSE`, `RMSE`, `MAPE`, `MSPE`
-
-#### `utils/tools.py`
-- **`EarlyStopping`**: Patience-based early stopping with model checkpointing
-- **`adjust_learning_rate`**: Multiple LR schedules (type1 halving, type2 manual, TST OneCycleLR)
-- **`visual(true, preds, name)`**: Plot ground truth vs predictions
-- **`StandardScaler`**: Manual z-score normalization
-
----
-
-## Setup & Installation
-
-### Environment
-
-```bash
-# Create conda environment
-conda create -n simpletm python=3.10
-conda activate simpletm
-
-# Install PyTorch (adjust CUDA version as needed)
-pip install torch torchvision torchaudio
-
-# Install dependencies
-pip install numpy pandas scikit-learn matplotlib PyWavelets
+```text
+T_swt  = SWT(x)
+T_fft  = FFT(x)
+T_conv = Conv(x)
+T_fused = softmax_gate(T_swt, T_fft, T_conv)
 ```
 
-### From `environment.yml`
+### Original Geometric Attention
 
-```bash
-conda env create -f environment.yml
-conda activate simpletm
+The original SimpleTM attention is preserved across all branches. It mixes:
+
+- dot-product similarity
+- wedge-product magnitude
+
+Conceptually:
+
+```text
+score = (1 - alpha) * dot(q, k) + alpha * wedge_norm(q, k)
 ```
 
----
+Implemented through:
+
+- [layers/SWTAttention_Family.py](layers/SWTAttention_Family.py)
+- [layers/FFTAttention_Family.py](layers/FFTAttention_Family.py)
+- [layers/ConvAttention_Family.py](layers/ConvAttention_Family.py)
+- [layers/HybridAttention_Family.py](layers/HybridAttention_Family.py)
+
+### Dual Attention
+
+Implemented in [layers/ParallelAttention_Family.py](layers/ParallelAttention_Family.py).
+
+The dual mode adds a parallel temporal attention branch beside the original branch:
+
+```text
+embedded tokens
+  -> original branch (tokenizer + geometric attention)
+  -> temporal branch (time-axis self-attention)
+  -> learned fusion gate
+  -> fused encoder output
+```
+
+The temporal branch attends across the latent time axis after transposing the inverted embedding. The fusion gate is a small MLP that outputs one scalar gate per sample and mixes:
+
+```text
+out = g * original_branch + (1 - g) * temporal_branch
+```
+
+This keeps the original mechanism available while testing whether explicit temporal reasoning adds value.
+
+## Model Files
+
+Model entrypoints:
+
+- [model/SimpleTM.py](model/SimpleTM.py)
+- [model/SimpleTM_SWT.py](model/SimpleTM_SWT.py)
+- [model/SimpleTM_FFT.py](model/SimpleTM_FFT.py)
+- [model/SimpleTM_Conv.py](model/SimpleTM_Conv.py)
+- [model/SimpleTM_Hybrid.py](model/SimpleTM_Hybrid.py)
+
+Experiment and training flow:
+
+- [experiments/exp_basic.py](experiments/exp_basic.py)
+- [experiments/exp_long_term_forecasting.py](experiments/exp_long_term_forecasting.py)
+- [run.py](run.py)
+
+Data pipeline:
+
+- [data_provider/data_factory.py](data_provider/data_factory.py)
+- [data_provider/data_loader.py](data_provider/data_loader.py)
 
 ## Running Experiments
 
-### Original SimpleTM (SWT + Geometric Attention)
+Core switches:
+
+- `--model`: `SimpleTM`, `SimpleTM_SWT`, `SimpleTM_FFT`, `SimpleTM_Conv`, `SimpleTM_Hybrid`
+- `--attention_mode`: `original` or `dual`
+- `--conv_kernel_sizes`: comma-separated odd kernels for the Conv and Hybrid branches
+
+Examples:
 
 ```bash
-python -u run.py \
-  --is_training 1 \
-  --model SimpleTM \
-  --model_id ETTh1 \
-  --data ETTh1 \
-  --root_path ./dataset/ETT-small/ \
-  --data_path ETTh1.csv \
-  --features M \
-  --seq_len 96 \
-  --pred_len 96 \
-  --e_layers 1 \
-  --d_model 32 \
-  --d_ff 32 \
-  --enc_in 7 \
-  --dec_in 7 \
-  --c_out 7 \
-  --wv db1 \
-  --m 3 \
-  --alpha 1.0 \
-  --learning_rate 0.0001 \
-  --batch_size 32 \
-  --train_epochs 10
+python run.py --is_training 1 --model SimpleTM_SWT --attention_mode original ...
+python run.py --is_training 1 --model SimpleTM_FFT --attention_mode dual ...
+python run.py --is_training 1 --model SimpleTM_Conv --attention_mode original --conv_kernel_sizes 3,5,7,11 ...
+python run.py --is_training 1 --model SimpleTM_Hybrid --attention_mode dual --conv_kernel_sizes 3,5,7,11 ...
 ```
 
-### SWT-Only Baseline
+## Metrics
 
-```bash
-python -u run.py \
-  --is_training 1 \
-  --model SimpleTM_SWT \
-  --model_id ETTh1_SWT \
-  --data ETTh1 \
-  --root_path ./dataset/ETT-small/ \
-  --data_path ETTh1.csv \
-  --features M \
-  --seq_len 96 \
-  --pred_len 96 \
-  --e_layers 1 \
-  --d_model 32 \
-  --d_ff 32 \
-  --enc_in 7 \
-  --dec_in 7 \
-  --c_out 7 \
-  --wv db1 \
-  --m 3 \
-  --alpha 1.0 \
-  --learning_rate 0.0001 \
-  --batch_size 32 \
-  --train_epochs 10
-```
+The test pipeline reports:
 
-### FFT-Only Tokenization
+- `MAE`
+- `MSE`
+- `RMSE`
+- `MAPE`
+- `MSPE`
+- `RSE`
+- `CORR`
+- `SMAPE`
+- `WAPE`
+- `R2`
 
-```bash
-python -u run.py \
-  --is_training 1 \
-  --model SimpleTM_FFT \
-  --model_id ETTh1_FFT \
-  --data ETTh1 \
-  --root_path ./dataset/ETT-small/ \
-  --data_path ETTh1.csv \
-  --features M \
-  --seq_len 96 \
-  --pred_len 96 \
-  --e_layers 1 \
-  --d_model 32 \
-  --d_ff 32 \
-  --enc_in 7 \
-  --dec_in 7 \
-  --c_out 7 \
-  --m 3 \
-  --alpha 1.0 \
-  --learning_rate 0.0001 \
-  --batch_size 32 \
-  --train_epochs 10
-```
+Metric code is in [utils/metrics.py](utils/metrics.py).
 
-> **Note**: For the FFT model, `--wv` and `--kernel_size` arguments are ignored since there are no wavelet filters. The `--m` argument controls the number of FFT frequency bands (m+1 total).
+## Kaggle Notebooks
 
----
+Main experiment notebooks in this repo:
 
-## Dataset
+- [results_complete/all-data-set-fixed-graph.ipynb](results_complete/all-data-set-fixed-graph.ipynb)
+  original SWT and FFT comparison
+- [results_complete/all-data-set-dual-attention.ipynb](results_complete/all-data-set-dual-attention.ipynb)
+  SWT and FFT with `original` and `dual` attention
+- [simpletmg-alldataset-conv-hybrid.ipynb](simpletmg-alldataset-conv-hybrid.ipynb)
+  all eight variants: SWT, FFT, Conv, and Hybrid with both attention modes
 
-The primary dataset for this BTP project is available at:
+EDA notebooks and notes:
 
-📦 **[Google Drive Link](https://drive.google.com/file/d/1hTpUrhe1yEIGa9mCiGxM5rDyzlYKAnyx/view?usp=sharing)**
+- [eda-analysis.ipynb](eda-analysis.ipynb)
+- [EDA-model-justification-all-datasets-with-smart.ipynb](EDA-model-justification-all-datasets-with-smart.ipynb)
+- [readmenew.md](readmenew.md)
 
-Place the downloaded data in `./dataset/` directory following the structure expected by `data_provider/data_loader.py`.
+## Datasets
 
-### Supported Benchmark Datasets
+The repo works with the benchmark datasets already wired through the loader layer, including:
 
-| Dataset | Type | Features | Data Loader |
-|---------|------|----------|-------------|
-| ETTh1/ETTh2 | Electricity Transformer | 7 | `Dataset_ETT_hour` |
-| ETTm1/ETTm2 | Electricity Transformer | 7 | `Dataset_ETT_minute` |
-| ECL | Electricity Consumption | 321 | `Dataset_Custom` |
-| Weather | Weather Stations | 21 | `Dataset_Custom` |
-| Traffic | Road Occupancy | 862 | `Dataset_Custom` |
-| PEMS | Traffic Flow | 170-883 | `Dataset_PEMS` |
-| Solar | Solar Energy | 137 | `Dataset_Solar` |
+- `ETTh1`, `ETTh2`
+- `ETTm1`, `ETTm2`
+- `electricity`
+- `weather`
+- `traffic`
+- `Solar`
+- `PEMS03`, `PEMS04`, `PEMS07`, `PEMS08`
+- `smartbuilding`
 
----
+Dataset-specific loading is handled in [data_provider/data_loader.py](data_provider/data_loader.py).
+
+## Current Status
+
+Implemented:
+
+- SWT tokenization
+- FFT tokenization
+- Conv tokenization
+- Hybrid gated tokenization
+- original geometric attention
+- dual attention with a temporal branch
+- all-variant Kaggle notebook support
+
+Useful technical note:
+
+- `SimpleTM` and `SimpleTM_SWT` belong to the same SWT family
+- `SimpleTM_Hybrid` uses a softmax branch-fusion gate
+- `attention_mode=dual` uses a learned gate between original and temporal branches
 
 ## References
 
-- **SimpleTM Paper**: [A Simple Baseline for Multivariate Time Series Forecasting](https://openreview.net/forum?id=SimpleTM)
-- **Original Repository**: [https://github.com/vsingh-group/SimpleTM](https://github.com/vsingh-group/SimpleTM)
+- Base paper: [A Simple Baseline for Multivariate Time Series Forecasting](https://openreview.net/forum?id=gieyCN1b4d)
+- Original repo: [https://github.com/vsingh-group/SimpleTM](https://github.com/vsingh-group/SimpleTM)

@@ -4,6 +4,8 @@ from math import sqrt
 
 from layers.SWTAttention_Family import GeomAttentionLayer
 from layers.FFTAttention_Family import FFTGeomAttentionLayer
+from layers.ConvAttention_Family import ConvGeomAttentionLayer
+from layers.HybridAttention_Family import HybridGeomAttentionLayer
 
 
 class TemporalAxisAttention(nn.Module):
@@ -106,6 +108,68 @@ class ParallelFFTGeomAttentionLayer(_ParallelAttentionBase):
             m=m,
             d_channel=d_channel,
             geomattn_dropout=geomattn_dropout,
+        )
+        super().__init__(
+            original_attention_layer=original_attention_layer,
+            d_model=d_model,
+            d_channel=d_channel,
+            branch_dropout=geomattn_dropout,
+        )
+
+
+class ParallelConvGeomAttentionLayer(_ParallelAttentionBase):
+    """Original Conv geometric attention plus a parallel temporal branch."""
+
+    def __init__(
+        self,
+        attention,
+        d_model,
+        m=2,
+        d_channel=None,
+        geomattn_dropout=0.5,
+        conv_kernel_sizes=None,
+    ):
+        original_attention_layer = ConvGeomAttentionLayer(
+            attention,
+            d_model,
+            m=m,
+            d_channel=d_channel,
+            geomattn_dropout=geomattn_dropout,
+            conv_kernel_sizes=conv_kernel_sizes,
+        )
+        super().__init__(
+            original_attention_layer=original_attention_layer,
+            d_model=d_model,
+            d_channel=d_channel,
+            branch_dropout=geomattn_dropout,
+        )
+
+
+class ParallelHybridGeomAttentionLayer(_ParallelAttentionBase):
+    """Hybrid gated tokenizer plus a parallel temporal branch."""
+
+    def __init__(
+        self,
+        attention,
+        d_model,
+        requires_grad=True,
+        wv="db2",
+        m=2,
+        kernel_size=None,
+        d_channel=None,
+        geomattn_dropout=0.5,
+        conv_kernel_sizes=None,
+    ):
+        original_attention_layer = HybridGeomAttentionLayer(
+            attention,
+            d_model,
+            requires_grad=requires_grad,
+            wv=wv,
+            m=m,
+            kernel_size=kernel_size,
+            d_channel=d_channel,
+            geomattn_dropout=geomattn_dropout,
+            conv_kernel_sizes=conv_kernel_sizes,
         )
         super().__init__(
             original_attention_layer=original_attention_layer,
