@@ -1,8 +1,13 @@
-# Conv Architecture in SimpleTMG
+# Conv and Hybrid Architecture in SimpleTMG
 
-This note explains the **Conv branch** used by `SimpleTM_Conv` in this repository.
+This note explains the **Conv** and **Hybrid** branches used in this repository.
 
-It is not a separate CNN forecasting model. Instead, it is a **convolutional tokenization variant** of SimpleTM that keeps the original forecasting backbone and replaces the SWT/FFT tokenization stage with a multi-scale convolutional tokenizer.
+Neither of them is a separate forecasting backbone. Both are **SimpleTM variants**:
+
+- `SimpleTM_Conv` replaces the tokenizer with a multi-scale convolutional tokenizer
+- `SimpleTM_Hybrid` runs `SWT`, `FFT`, and `Conv` tokenizers in parallel and fuses them with a learned gate
+
+Both can also be used in `dual` attention mode, where a temporal self-attention branch is added in parallel to the original branch.
 
 ---
 
@@ -420,3 +425,329 @@ The Conv architecture in this project is:
 In one line:
 
 > `SimpleTM_Conv` keeps the SimpleTM backbone, replaces the tokenizer with multi-scale depthwise circular convolutions, and optionally adds a parallel temporal attention branch in dual mode.
+
+---
+
+## 13. Hybrid Model Overview
+
+The Hybrid model is implemented in:
+
+- [model/SimpleTM_Hybrid.py](model/SimpleTM_Hybrid.py)
+- [layers/HybridAttention_Family.py](layers/HybridAttention_Family.py)
+
+Its goal is different from the Conv-only branch.
+
+Instead of committing to one tokenizer, the Hybrid branch runs:
+
+- `SWT`
+- `FFT`
+- `Conv`
+
+in parallel on the same embedded token tensor, then fuses them with a learned gate before geometric attention.
+
+So the Hybrid pipeline is:
+
+```text
+Input series
+  -> normalization
+  -> inverted embedding
+  -> SWT tokenization
+  -> FFT tokenization
+  -> Conv tokenization
+  -> learned branch fusion
+  -> geometric attention
+  -> learned scale reconstruction
+  -> encoder FFN/residual/norm
+  -> output projection
+  -> de-normalization
+  -> forecast
+```
+
+This makes `SimpleTM_Hybrid` the most flexible tokenizer in the project.
+
+---
+
+## 14. Hybrid Tokenization in Detail
+
+The core layer is `HybridGeomAttentionLayer` in [layers/HybridAttention_Family.py](layers/HybridAttention_Family.py).
+
+### 14.1 Shared input shape
+
+Just like the other models, Hybrid starts after inverted embedding:
+
+```text
+(B, L, N) -> (B, N, d_model)
+```
+
+This embedded tensor is sent to all three tokenizers.
+
+### 14.2 Three parallel tokenizers
+
+For the same input token tensor `x`, the Hybrid layer computes:
+
+```text
+T_swt  = SWT(x)
+T_fft  = FFT(x)
+T_conv = Conv(x)
+```
+
+Each of these has the same shape:
+
+```text
+(B, N, m + 1, d_model)
+```
+
+That shared shape is what makes the fusion possible.
+
+The roles of the three branches are:
+
+- `SWT`: structured multi-resolution decomposition for non-stationary signals
+- `FFT`: compact spectral decomposition for periodic structure
+- `Conv`: learnable local motif extraction
+
+So Hybrid is trying to combine:
+
+- hand-structured wavelet features
+- spectral features
+- learned local features
+
+in one token stream.
+
+### 14.3 Fusion gate
+
+The branch fusion module is `BranchFusionGate`.
+
+Its structure is:
+
+```text
+Linear(3 * d_model, d_model)
+-> GELU
+-> Linear(d_model, 3)
+-> softmax
+```
+
+This is not a single scalar gate for the whole sample.
+It is applied on the concatenated branch features at each `(sample, variate, scale)` location.
+
+So for each token location the gate computes 3 weights:
+
+```text
+w_swt, w_fft, w_conv
+```
+
+with:
+
+```text
+w_swt + w_fft + w_conv = 1
+```
+
+Then the fused token is:
+
+```text
+T_fused = w_swt * T_swt + w_fft * T_fft + w_conv * T_conv
+```
+
+This means the model can adapt branch importance depending on the specific token and scale.
+
+### 14.4 Example
+
+Suppose after tokenization, for one sample, one variable, one scale, the three branch vectors are:
+
+```text
+T_swt  = [0.2, 0.7, 0.1]
+T_fft  = [0.5, 0.2, 0.3]
+T_conv = [0.4, 0.6, 0.5]
+```
+
+If the learned fusion gate outputs:
+
+```text
+w_swt = 0.6
+w_fft = 0.1
+w_conv = 0.3
+```
+
+then the fused token becomes:
+
+```text
+T_fused = 0.6*T_swt + 0.1*T_fft + 0.3*T_conv
+```
+
+So that token is dominated by the SWT branch, but still uses information from FFT and Conv.
+
+For another token, the weights may be very different.  
+That is why Hybrid is more adaptive than selecting one tokenizer globally.
+
+---
+
+## 15. Hybrid Attention and Reconstruction
+
+After fusion, the Hybrid branch behaves like the other tokenizers.
+
+Its flow is:
+
+```text
+queries/keys/values
+  -> tokenize with SWT, FFT, Conv
+  -> fuse branches with softmax gate
+  -> Q/K/V projection
+  -> geometric attention
+  -> learned scale reconstruction
+```
+
+### 15.1 Geometric attention is unchanged
+
+The Hybrid model still uses the original geometric attention scoring rule:
+
+```text
+score = (1 - alpha) * dot(q, k) + alpha * wedge_norm(q, k)
+```
+
+So again, the attention mechanism stays fixed.
+The new part is the tokenizer fusion before attention.
+
+### 15.2 Reconstruction
+
+After geometric attention, the Hybrid output is still:
+
+```text
+(B, N, m + 1, d_model)
+```
+
+It is collapsed back using the same `ScaleMixerReconstruction` used by the Conv branch:
+
+```text
+(B, N, m + 1, d_model) -> (B, N, d_model)
+```
+
+So Hybrid has:
+
+- learned branch fusion across tokenizers
+- learned scale mixing after attention
+
+This gives it two levels of adaptivity.
+
+---
+
+## 16. Dual Attention Version of Hybrid
+
+If:
+
+```text
+attention_mode = dual
+```
+
+then [model/SimpleTM_Hybrid.py](model/SimpleTM_Hybrid.py) switches to:
+
+- `ParallelHybridGeomAttentionLayer`
+
+from [layers/ParallelAttention_Family.py](layers/ParallelAttention_Family.py).
+
+This means the Hybrid branch itself remains intact, and a temporal branch is added beside it.
+
+So the dual Hybrid architecture is:
+
+```text
+embedded tokens
+  -> Hybrid branch:
+       SWT + FFT + Conv
+       -> branch fusion gate
+       -> geometric attention
+       -> scale reconstruction
+  -> temporal self-attention branch
+  -> learned branch gate
+  -> fused encoder output
+```
+
+This is important:
+
+- the `Hybrid` branch already has an internal **3-way tokenization gate**
+- the `dual` version adds a second **2-way attention-branch gate**
+
+So there are two different gating levels:
+
+1. tokenization fusion gate inside Hybrid
+2. original-vs-temporal fusion gate inside Dual Attention
+
+### 16.1 Temporal branch
+
+The temporal branch is the same one used in the dual Conv/SWT/FFT variants:
+
+- transpose `(B, N, d_model)` to `(B, d_model, N)`
+- run self-attention over the latent time axis
+- map back to `(B, N, d_model)`
+
+### 16.2 Dual fusion gate
+
+The outer fusion gate in [layers/ParallelAttention_Family.py](layers/ParallelAttention_Family.py) is:
+
+```text
+Linear(2 * d_model, d_model)
+-> GELU
+-> Linear(d_model, 1)
+-> sigmoid
+```
+
+It produces one scalar gate per sample and fuses:
+
+```text
+out = g * hybrid_branch + (1 - g) * temporal_branch
+```
+
+So in the dual Hybrid model:
+
+- Hybrid decides how to mix `SWT`, `FFT`, and `Conv`
+- Dual attention decides how much to trust the Hybrid path versus the temporal path
+
+---
+
+## 17. Shape Summary for Hybrid
+
+Original Hybrid model:
+
+```text
+Input                         : (B, L, N)
+Embedding output              : (B, N, d_model)
+SWT / FFT / Conv tokens       : (B, N, m + 1, d_model)
+After branch fusion           : (B, N, m + 1, d_model)
+After scale reconstruction    : (B, N, d_model)
+Forecast                      : (B, pred_len, N)
+```
+
+Dual Hybrid model:
+
+```text
+Embedding output              : (B, N, d_model)
+Hybrid branch output          : (B, N, d_model)
+Temporal branch output        : (B, N, d_model)
+After outer fusion gate       : (B, N, d_model)
+Forecast                      : (B, pred_len, N)
+```
+
+---
+
+## 18. Why Hybrid Is Different
+
+`SimpleTM_Hybrid` is the most expressive variant in the project because it can:
+
+- use wavelet-style multi-resolution information
+- use Fourier-style spectral information
+- use learnable convolutional local patterns
+- adaptively weight them
+- optionally combine all of that with a temporal attention branch
+
+Its strengths are:
+
+- most flexible tokenizer
+- strongest ability to adapt across datasets
+- can favor different branches for different tokens and scales
+
+Its tradeoffs are:
+
+- more parameters than a single-branch tokenizer
+- harder to interpret than pure SWT or pure FFT
+- more moving parts because there are two fusion stages in dual mode
+
+In one line:
+
+> `SimpleTM_Hybrid` runs SWT, FFT, and Conv tokenizers in parallel, learns how to fuse them before geometric attention, and in `dual` mode also learns how to fuse that hybrid path with a temporal self-attention branch.
