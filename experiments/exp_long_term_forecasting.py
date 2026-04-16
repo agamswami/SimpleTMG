@@ -11,10 +11,64 @@ import os
 import time
 import warnings
 import numpy as np
+import matplotlib.pyplot as plt
 
 warnings.filterwarnings('ignore')
 
 torch.autograd.set_detect_anomaly(True)
+plt.switch_backend('agg')
+
+
+def save_prediction_grid(examples, name, title, caption, max_examples=16):
+    """Save a combined grid of lookback/forecast/prediction windows as a PNG."""
+    if not examples:
+        return
+
+    n_examples = min(len(examples), max_examples)
+    n_cols = 4
+    n_rows = 4
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(4.2 * n_cols, 3.2 * n_rows),
+        squeeze=False,
+    )
+
+    flat_axes = axes.flatten()
+    for idx, sample in enumerate(examples[:n_examples]):
+        ax = flat_axes[idx]
+        lookback = np.asarray(sample["lookback"])
+        forecast = np.asarray(sample["forecast"])
+        predicted = np.asarray(sample["predicted"])
+
+        lookback_x = np.arange(len(lookback))
+        forecast_x = np.arange(len(lookback), len(lookback) + len(forecast))
+
+        ax.plot(lookback_x, lookback, color='#1f77b4', linewidth=1.8, label='Lookback Window')
+        ax.plot(forecast_x, forecast, color='#ff7f0e', linewidth=1.8, label='Forecast Window')
+        ax.plot(
+            forecast_x,
+            predicted,
+            color='#d62728',
+            linewidth=1.8,
+            linestyle='--',
+            label='Predicted Window',
+        )
+        ax.set_title(f'Example {idx + 1}', fontsize=10)
+        ax.set_xlabel('Time Steps')
+        ax.set_ylabel('Values')
+        ax.grid(True, alpha=0.35)
+        if idx == 0:
+            ax.legend(loc='best', fontsize=8)
+
+    for ax in flat_axes[n_examples:]:
+        ax.axis('off')
+
+    fig.suptitle(title, fontsize=15, y=0.985)
+    fig.text(0.5, 0.015, caption, ha='center', fontsize=10)
+    fig.tight_layout(rect=(0, 0.05, 1, 0.955))
+    fig.savefig(name, dpi=200, bbox_inches='tight')
+    plt.close(fig)
 
 
 class Exp_Long_Term_Forecast(Exp_Basic):
@@ -234,6 +288,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
+        prediction_examples = []
         self.model.eval()
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
@@ -279,9 +334,20 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     if test_data.scale and self.args.inverse:
                         shape = input.shape
                         input = test_data.inverse_transform(input.squeeze(0)).reshape(shape)
-                    gt = np.concatenate((input[0, :, -1], true[0, :, -1]), axis=0)
-                    pd = np.concatenate((input[0, :, -1], pred[0, :, -1]), axis=0)
+                    lookback = input[0, :, -1]
+                    forecast = true[0, :, -1]
+                    predicted = pred[0, :, -1]
+                    gt = np.concatenate((lookback, forecast), axis=0)
+                    pd = np.concatenate((lookback, predicted), axis=0)
                     visual(gt, pd, os.path.join(folder_path, str(i) + '.pdf'))
+                    if len(prediction_examples) < 16:
+                        prediction_examples.append(
+                            {
+                                'lookback': lookback,
+                                'forecast': forecast,
+                                'predicted': predicted,
+                            }
+                        )
 
         preds = np.array(preds)
         trues = np.array(trues)
@@ -319,6 +385,27 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         f.write('\n')
         f.write('\n')
         f.close()
+
+        dataset_label = self.args.data
+        if self.args.data in {'custom', 'PEMS', 'Solar'}:
+            dataset_label = os.path.splitext(os.path.basename(self.args.data_path))[0]
+        attention_label = getattr(self.args, 'attention_mode', 'original')
+        title = (
+            f'{self.args.model} ({attention_label}) on {dataset_label}: '
+            f'{self.args.seq_len}-step input and {self.args.pred_len}-step predictions'
+        )
+        caption = (
+            'Combined forecasting examples from the test split. '
+            'Blue: lookback window. Orange: forecast window. '
+            'Red dashed: predicted window. Each subplot shows the last variate '
+            'from one sampled test window.'
+        )
+        save_prediction_grid(
+            prediction_examples,
+            os.path.join(folder_path, 'combined_prediction_examples.png'),
+            title,
+            caption,
+        )
 
     
         return
