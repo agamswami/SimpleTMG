@@ -288,7 +288,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
 
+        max_prediction_examples = 16
         prediction_examples = []
+        num_test_batches = max(1, len(test_loader))
+        examples_per_batch = max(1, int(np.ceil(max_prediction_examples / num_test_batches)))
         self.model.eval()
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
@@ -329,18 +332,36 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
                 preds.append(pred)
                 trues.append(true)
+                input = batch_x.detach().cpu().numpy()
+                if test_data.scale and self.args.inverse:
+                    shape = input.shape
+                    input = test_data.inverse_transform(input.squeeze(0)).reshape(shape)
+
                 if i % 20 == 0:
-                    input = batch_x.detach().cpu().numpy()
-                    if test_data.scale and self.args.inverse:
-                        shape = input.shape
-                        input = test_data.inverse_transform(input.squeeze(0)).reshape(shape)
                     lookback = input[0, :, -1]
                     forecast = true[0, :, -1]
                     predicted = pred[0, :, -1]
                     gt = np.concatenate((lookback, forecast), axis=0)
                     pd = np.concatenate((lookback, predicted), axis=0)
                     visual(gt, pd, os.path.join(folder_path, str(i) + '.pdf'))
-                    if len(prediction_examples) < 16:
+
+                if len(prediction_examples) < max_prediction_examples:
+                    batch_size = pred.shape[0]
+                    sample_count = min(
+                        examples_per_batch,
+                        batch_size,
+                        max_prediction_examples - len(prediction_examples),
+                    )
+                    sample_indices = np.linspace(
+                        0,
+                        batch_size - 1,
+                        num=sample_count,
+                        dtype=int,
+                    )
+                    for sample_idx in sample_indices:
+                        lookback = input[sample_idx, :, -1]
+                        forecast = true[sample_idx, :, -1]
+                        predicted = pred[sample_idx, :, -1]
                         prediction_examples.append(
                             {
                                 'lookback': lookback,
@@ -348,6 +369,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                                 'predicted': predicted,
                             }
                         )
+                        if len(prediction_examples) >= max_prediction_examples:
+                            break
 
         preds = np.array(preds)
         trues = np.array(trues)
@@ -405,6 +428,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             os.path.join(folder_path, 'combined_prediction_examples.png'),
             title,
             caption,
+            max_examples=max_prediction_examples,
         )
 
     
