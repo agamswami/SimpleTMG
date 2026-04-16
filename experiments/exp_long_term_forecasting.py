@@ -362,6 +362,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         lookback = input[sample_idx, :, -1]
                         forecast = true[sample_idx, :, -1]
                         predicted = pred[sample_idx, :, -1]
+                        gt = np.concatenate((lookback, forecast), axis=0)
+                        pd = np.concatenate((lookback, predicted), axis=0)
+                        sample_pdf = os.path.join(folder_path, f'example_{len(prediction_examples):02d}.pdf')
+                        visual(gt, pd, sample_pdf)
                         prediction_examples.append(
                             {
                                 'lookback': lookback,
@@ -390,6 +394,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             os.makedirs(folder_path)
 
         metrics = metric_extended(preds, trues)
+        print(f'Collected {len(prediction_examples)} examples for combined_prediction_examples.png')
         print('mse:{}, mae:{}'.format(metrics['mse'], metrics['mae']))
         print('rmse:{}, mape:{}, mspe:{}'.format(metrics['rmse'], metrics['mape'], metrics['mspe']))
         print(
